@@ -1,0 +1,40 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Ericsson Network IQ Packet Capture Pre Processor
+#
+# Usage:
+#
+#       ./VersionChecker.bsh
+#
+#       exit 0 for success
+#
+#       Author: Luke Potter - elukpot
+#
+#       Date: 14/06/2013
+#
+#       Description:
+#           This script checks for an existing RPMVersions
+#           file and prints it out to screen. Should the
+#           file not exist the script calls the
+#           PopulateRPMVersions.sh script which populates
+#           the version of the PCP software into the
+#           RPMVerions text file.
+#
+#
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2013 AB Ericsson Oy  All rights reserved.
+# ----------------------------------------------------------------------
+# Version 1.0
+# ----------------------------------------------------------------------
+
+RPM_VERSIONS=/eniq/installation/core_install/bin/PCP_Aliases/RPMVersions
+POPULATE_VERSIONS=/eniq/installation/core_install/bin/PCP_Aliases/PopulateRPMVersions.sh
+
+if [ -f $RPM_VERSIONS ]
+then
+	cat $RPM_VERSIONS
+else
+	$POPULATE_VERSIONS
+fi
+
+exit 0

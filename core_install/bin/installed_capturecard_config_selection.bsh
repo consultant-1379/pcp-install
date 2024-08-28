@@ -1,0 +1,106 @@
+#!/bin/bash
+# ********************************************************************
+# Ericsson Radio Systems AB                                     SCRIPT
+# ********************************************************************
+#
+#
+# (c) Ericsson Radio Systems AB 2011 - All rights reserved.
+#
+# The copyright to the computer program(s) herein is the property
+# of Ericsson Radio Systems AB, Sweden. The programs may be used
+# and/or copied only with the written permission from Ericsson Radio
+# Systems AB or in accordance with the terms and conditions stipulated
+# in the agreement/contract under which the program(s) have been
+# supplied.
+#
+# ********************************************************************
+# Name    : installed_capturecard_configuration_selection.bsh
+# Date    : 23/10/2012
+# Revision: R1A01
+# Purpose : When run this script will check the installed napatech cards, and ensure that they match 
+#			a supported configuration and define the filters to be used.
+#
+# usage   : installed_capturecard_configuration_selection.bsh <working directory> <ini file name>  <log file to be used>
+#
+# Exit status:
+#		0: script completed succesfully
+# 		1: no supported configuration found.
+#
+# ********************************************************************
+
+source ../lib/common_functions.lib
+
+EXIT_NORMAL=0
+EXIT_CONFIGURATION_NOT_SUPPORTED=3
+
+DIR=$1
+SYSCONFIG_INI=$2
+LOGFILE=$3
+
+NT20E="18f4:00c5"
+NT4E="18f4:0071"
+#NT4E-STD="18f4:00a1"
+
+#get the bus IDs of an NT20
+#lspci -n | grep 18f4:00c5 | awk -F " " '{print $1}'
+#returns:07:00.0
+#        21:00.0
+#get the number of NT20s
+#lspci -n | grep 18f4:00c5 | awk -F " " '{print $1}' | wc -l
+#returns 2
+#
+#we can store this in the ini file and replace the valuse in the napatech configuration files at a later point in the install.
+#
+
+#Check for two nt20e and one nt4 on a DL380 gen8 
+#               PCI bus of first NT20			PCI bus of second NT20										  PCI bus of NT4
+if [ `lspci -n | grep 07\:00.0 | grep -I $NT20E | wc -l` -eq 1 ];then
+	echo "[INFO] Found 1st NT20E" >> ${LOGFILE}
+	if [ `lspci -n | grep 21\:00.0 | grep -I $NT20E | wc -l` -eq 1 ];then
+		echo "[INFO] Found 2nd NT20E" >> ${LOGFILE}
+		if [ `lspci -n | grep 24\:00.0 | grep -I $NT4E | wc -l` -eq 1 ]; then
+			echo "[INFO] Found NT4E" >> ${LOGFILE}
+	
+	echo "Setup supported; setting up filter type in configuration file" >> ${LOGFILE}
+	iniset NAPATECH_FILTERS -f ${DIR}/${SYSCONFIG_INI} filter_type="2_nt20e_1_nt4e"
+	
+	exit $EXIT_NORMAL
+		fi
+	fi	
+fi
+
+#Check for two nt20e on a DL380 gen8 
+if [ `lspci -n | grep 07\:00.0 | grep -I $NT20E | wc -l` -eq 1 ];then
+	echo "[INFO] Found 1st NT20E" >> ${LOGFILE}
+	if [ `lspci -n | grep 21\:00.0 | grep -I $NT20E | wc -l` -eq 1 ];then
+	echo "[INFO] Found 2nd NT20E" >> ${LOGFILE}
+	
+	echo "Setup supported; setting up filter type in configuration file" >> ${LOGFILE}
+	iniset NAPATECH_FILTERS -f ${DIR}/${SYSCONFIG_INI} filter_type="2_nt20e"
+	
+	exit $EXIT_NORMAL
+	fi	
+fi
+
+#Check for single nt20e on a DL380 gen8 
+echo "cjecking bottom if" >> ${LOGFILE}
+if [ `lspci -n | grep 07\:00.0 | grep -I $NT20E | wc -l` -eq 1 ]; then
+	
+	echo "Setup supported; setting up filter type in configuration file" >> ${LOGFILE}
+	iniset NAPATECH_FILTERS -f ${DIR}/${SYSCONFIG_INI} filter_type="1_nt20e"
+	
+	exit $EXIT_NORMAL
+	
+fi
+
+#Check for single nt4e on a DL380 gen8 
+if [ `lspci -n | grep 24:\:00.0 | grep -I $NT4E | wc -l` -eq 1 ]; then
+	echo "[INFO] Found NT4E" >> ${LOGFILE}
+	echo "Setup supported; setting up filter type in configuration file" >> ${LOGFILE}
+	iniset NAPATECH_FILTERS -f ${DIR}/${SYSCONFIG_INI} filter_type="1_nt4e"
+	
+	exit $EXIT_NORMAL
+fi
+
+exit $EXIT_CONFIGURATION_NOT_SUPPORTED
+

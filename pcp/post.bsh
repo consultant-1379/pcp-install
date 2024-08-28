@@ -1,0 +1,333 @@
+#!/bin/bash
+# ********************************************************************
+# Ericsson Radio Systems AB                                     SCRIPT
+# ********************************************************************
+#
+# (c) Ericsson Radio Systems AB 2012 - All rights reserved.
+#
+# The copyright to the computer program(s) herein is the property
+# of Ericsson Radio Systems AB, Sweden. The programs may be used
+# and/or copied only with the written permission from Ericsson Radio
+# Systems AB or in accordance with the terms and conditions stipulated
+# in the agreement/contract under which the program(s) have been
+# supplied.
+#
+# ********************************************************************
+# Name    : post.bsh
+# Date    : 05/07/2012
+# Revision: A.1
+# Purpose : This script will be executed after Linux OS is installed 
+#			and before the OS reboots. It will download and extract the 
+#			CEP mediation installation tar file onto Linux and configure 
+#			an installation service to run after the server reboots 
+#
+# Usage   : post.bsh
+#
+
+# ********************************************************************
+#
+#   Command Section
+#
+# ********************************************************************
+AWK=/bin/awk
+BASENAME=/bin/basename
+BASH=/bin/bash
+BC=/usr/bin/bc
+CAT=/bin/cat
+CHMOD=/bin/chmod
+CHOWN=/bin/chown
+CLEAR=/usr/bin/clear
+CMP=/usr/bin/cmp
+CP=/bin/cp
+CPIO=/bin/cpio
+DATE=/bin/date
+DIRNAME=/usr/bin/dirname
+DOMAINNAME=/bin/domainname
+ECHO=/bin/echo
+EGREP=/bin/egrep
+EJECT=/usr/sbin/eject
+ENV=/bin/env
+EXPR=/usr/bin/expr
+FIND=/bin/find
+FUSER=/sbin/fuser
+GETENT=/usr/bin/getent
+GETTEXT=/bin/gettext
+GREP=/bin/grep
+GROUPADD=/usr/sbin/groupadd
+GTAR=/bin/gtar
+GZIP=/bin/gzip
+HEAD=/usr/bin/head
+ID=/usr/bin/id
+IFCONFIG=/sbin/ifconfig
+INIT=/sbin/init
+LN=/bin/ln
+LS=/bin/ls
+MKDIR=/bin/mkdir
+MORE=/bin/more
+MOUNT=/bin/mount
+MV=/bin/mv
+MYHOSTNAME=/bin/hostname
+NSLOOKUP=/usr/bin/nslookup
+PGREP=/usr/bin/pgrep
+PING=/bin/ping
+PWD=/bin/pwd
+REBOOT=/sbin/reboot
+RM=/bin/rm
+RPM=/bin/rpm
+SED=/bin/sed
+SERVICE=/sbin/service 
+SLEEP=/bin/sleep
+SORT=/bin/sort
+SU=/bin/su
+SYNC=/bin/sync
+TAIL=/usr/bin/tail
+TAR=/bin/tar
+TEE=/usr/bin/tee
+TOUCH=/bin/touch
+TPUT=/usr/bin/tput
+TR=/usr/bin/tr
+UMOUNT=/bin/umount
+UNAME=/bin/uname
+USERADD=/usr/sbin/useradd
+WC=/usr/bin/wc
+YES=/usr/bin/yes
+
+# ********************************************************************
+#
+#       Configuration Section
+#
+# ********************************************************************
+
+APP_DIR=/tmp/APP
+#CEP_MED_CACHE_DIR=${APP_DIR}/applications/cep_mediation
+#CEP_MED_TAR_FILE_DIR=${CEP_MED_CACHE_DIR}/install
+
+PCP_CACHE_DIR=${APP_DIR}/eniq_linux/pcp
+PCP_TAR_FILE_DIR=${PCP_CACHE_DIR}/install
+
+PCP_TAR_FILE="pcp_core_install.tar.gz"
+
+ENIQ_BASE_DIR=/eniq
+ENIQ_INSTALL_DIR=${ENIQ_BASE_DIR}/installation
+ENIQ_CONF_DIR=${ENIQ_INSTALL_DIR}/config
+ENIQ_INSTALL_ETC_DIR=${ENIQ_INSTALL_DIR}/core_install/etc
+SECURITY_DIR=/etc/security
+MWS_IP_STOR_FILE=mws_ip
+LINUX_MEDIA_FILE=linux_media_mount
+OM_MEDIA_FILE=om_media_mount
+APPLICATION_MEDIA_FILE=application_mount
+MWS_CACHE_DIR_STOR_FILE=mws_cache_dir
+
+#Setting to echo out to Linux console
+curTTY=`tty`
+exec < $curTTY > $curTTY 2> $curTTY
+
+# Cmd to exec a shell and drop user to it in case of an error
+EXEC_SHELL_CMD="exec /bin/bash -o emacs"
+
+# ********************************************************************
+#
+#   Functions
+#
+# ********************************************************************
+### Function: abort_script ###
+#
+#   This will be called if the script is aborted thru an error
+#   signal sent by the kernel such as CTRL-C or if a serious
+#   error is encountered during runtime
+#
+# Arguments:
+#       $1 - Error message from part of program (Not always used)
+# Return Values:
+#       none
+
+abort_script()
+{
+_err_time_=`$DATE '+%Y-%b-%d_%H.%M.%S'`
+
+if [ "$1" ]; then
+    _err_msg_="${_err_time_} - $1"
+else
+    _err_msg_="${_err_time_} - ERROR : Script aborted.......\n"
+fi
+
+if [ "${LOGFILE}" ]; then
+    $ECHO "\nERROR : $_err_msg_\n" | $TEE -a ${LOGFILE}
+else
+    $ECHO "\nERROR : $_err_msg_\n"
+fi
+
+cd $SCRIPTHOME
+$RM -rf ${TEM_DIR}
+
+if [ "$2" ]; then
+    if [ ! "${UPGRADE}" -a ! "${RESTORE}" ]; then
+    	${2}    	
+    fi
+    exit 1
+else
+   exit 1
+fi
+}
+
+### Function: get_absolute_path ###
+#
+# Determine absolute path to software
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+get_absolute_path()
+{
+_dir_=`$DIRNAME $0`
+SCRIPTHOME=`cd $_dir_ 2>/dev/null && pwd || $ECHO $_dir_`
+}
+
+
+# ********************************************************************
+#
+#   Main body of program
+#
+# ********************************************************************
+#
+#Setting to echo out to Linux console
+curTTY=`tty`
+exec < $curTTY > $curTTY 2> $curTTY
+
+clear
+
+# Check for the installation tar file in /tmp/APP which is mounted to eniq_base_sw path on MWS
+# If file exists copy it down to Linux and extract it
+# If it doesn't exist error out
+
+$ECHO "Checking for PCP installation tar file"
+if [ -s ${PCP_TAR_FILE_DIR}/${PCP_TAR_FILE} ] ; then
+	$ECHO "Found the tar file ${PCP_TAR_FILE_DIR}/${PCP_TAR_FILE}"
+	$MKDIR -p ${ENIQ_INSTALL_DIR}
+	if [ $? -ne 0 ]; then
+    	_err_msg_="Failed to create ${ENIQ_INSTALL_DIR}"
+	    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+    
+    $CP ${PCP_TAR_FILE_DIR}/${PCP_TAR_FILE} ${ENIQ_INSTALL_DIR} 
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to create ${ENIQ_INSTALL_DIR}"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+    
+    $ECHO "Extracting ${PCP_TAR_FILE_DIR}/${PCP_TAR_FILE} to ${ENIQ_INSTALL_DIR}"
+
+    cd ${ENIQ_INSTALL_DIR}
+    $TAR xzvf ${ENIQ_INSTALL_DIR}/${PCP_TAR_FILE}
+    if [ $? -ne 0 ]; then
+    	_err_msg_="Failed to extract Extracting ${PCP_TAR_FILE_DIR}/${PCP_TAR_FILE}"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+    cd $SCRIPTHOME
+else
+	$ECHO "PCP installation tar file ${PCP_TAR_FILE_DIR}/${PCP_TAR_FILE} not found"
+	_err_msg_="PCP installation tar file ${PCP_TAR_FILE_DIR}/${PCP_TAR_FILE} not found"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+fi
+
+#Create ENIQ_CONF_DIR directory
+$MKDIR -p ${ENIQ_CONF_DIR}
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to create ${ENIQ_CONF_DIR}"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+# From the mount point of tmp/APP determine the MWS IP address and store 
+# locally in /eniq/installation/config/mws_ip
+$ECHO "Determining MWS IP address"
+_mws_ip_=`$MOUNT | $GREP eniq_base_sw | $AWK -F: '{print $1}'`
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to determine MWS IP address"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+$ECHO "Storing MWS IP address - ${_mws_ip_} - in ${ENIQ_CONF_DIR}"
+$ECHO ${_mws_ip_} > ${ENIQ_CONF_DIR}/${MWS_IP_STOR_FILE}
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to store ${_mws_ip_} address in ${ENIQ_CONF_DIR}"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+# From the mount point of tmp/APP determine the mount points for required dirs
+# used during install and store 
+# locally in /eniq/installation/config/mount_dirs
+$ECHO "Determining current mount location for linux media cache"
+_linux_media_=`$MOUNT | $GREP LIN_MEDIA | $AWK -F" "  '{ print $1 }'`
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to determine Linux media mount point"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+$ECHO "Storing Linux media - ${_linux_media_} - in ${ENIQ_CONF_DIR}"
+$ECHO ${_linux_media_} > ${ENIQ_CONF_DIR}/${LINUX_MEDIA_FILE}
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to store ${_linux_media_} mount data in ${ENIQ_CONF_DIR}"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+    
+$ECHO "Determining current mount location for O&M cache"
+_O_M_=`$MOUNT | $GREP OM_LINUX_MEDIA | $AWK -F" "  '{ print $1 }'`
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to determine O&M mount point"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+$ECHO "Storing O&M - ${_O_M_} - in ${ENIQ_CONF_DIR}"
+$ECHO ${_O_M_} > ${ENIQ_CONF_DIR}/${OM_MEDIA_FILE}
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to store ${_linux_media_} mount data in ${ENIQ_CONF_DIR}"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+    
+$ECHO "Determining current mount location for application cache"
+_app_=`$MOUNT | $GREP eniq_base_sw | $AWK -F" "  '{ print $1 }'`
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to determine application mount point"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+$ECHO "Storing application mount - ${_app_} - in ${ENIQ_CONF_DIR}"
+$ECHO ${_app_} > ${ENIQ_CONF_DIR}/${APPLICATION_MEDIA_FILE}
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to store ${_app_} mount data in ${ENIQ_CONF_DIR}"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi    
+
+# From the mount point of tmp/APP determine the MWS cache directory and store 
+# locally in /eniq/installation/config/mws_cache_dir
+$ECHO "Determining MWS cache directory"
+_mws_cache_dir_=`$MOUNT | $GREP eniq_base_sw | $AWK -F " " '{print $1}' | $AWK -F: '{print $2}'`
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to determine MWS cache directory"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+$ECHO "Storing MWS cache directory - ${_mws_cache_dir_} - in ${ENIQ_CONF_DIR}"
+$ECHO ${_mws_cache_dir_} > ${ENIQ_CONF_DIR}/${MWS_CACHE_DIR_STOR_FILE}
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to store MWS cache directory - ${_mws_cache_dir_} - in ${ENIQ_CONF_DIR}"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+
+## To ensure that the PCP system can run we need to increase the number of 
+## open files allowed to do this we move a delivered limits.conf into the 
+## necessary location.
+$ECHO "Updating the number of open files allowed on the system" 
+$ECHO "Backing up the old limits.conf file"    
+	$MV ${SECURITY_DIR}/limits.conf ${SECURITY_DIR}/limits.conf.old
+	if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to move old limits.conf file to limits.conf.old"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+$ECHO "Moving in the new limits.conf the number of open files allowed on the system"     
+    $MV ${ENIQ_INSTALL_ETC_DIR}/limits.conf ${SECURITY_DIR}/limits.conf
+    if [ $? -ne 0 ]; then
+	    _err_msg_="Failed to replace limits.conf file with new limits.conf to ensure addtional open files are allowed"
+    	abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+$ECHO "Completed updating the number of open files allowed on the system" 
+    
+exit 0
+

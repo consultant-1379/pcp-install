@@ -1,0 +1,12 @@
+kernel-devel.x86_64
+gcc.x86_64
+make.x86_64
+glibc.x86_64
+ncurses.x86_64
+automake.noarch
+flex.x86_64
+bison.x86_64
+jdk-.*-linux-x64.rpm
+wireshark
+ERICpcp_capture_card_conf.*.rpm
+ERICpcp-pect.*.rpm

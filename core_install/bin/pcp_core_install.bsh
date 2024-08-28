@@ -1,0 +1,130 @@
+#!/bin/bash
+AWK=/bin/awk
+BASENAME=/bin/basename
+BASH=/bin/bash
+BC=/usr/bin/bc
+CAT=/bin/cat
+CHKCONFIG=/sbin/chkconfig
+CHMOD=/bin/chmod
+CHOWN=/bin/chown
+CLEAR=/usr/bin/clear
+CMP=/usr/bin/cmp
+CP=/bin/cp
+CPIO=/bin/cpio
+DATE=/bin/date
+DIRNAME=/usr/bin/dirname
+DOMAINNAME=/bin/domainname
+ECHO=/bin/echo
+EGREP=/bin/egrep
+EJECT=/usr/sbin/eject
+ENV=/bin/env
+EXPR=/usr/bin/expr
+FIND=/bin/find
+FUSER=/sbin/fuser
+GETENT=/usr/bin/getent
+GETTEXT=/bin/gettext
+GREP=/bin/grep
+GROUPADD=/usr/sbin/groupadd
+GTAR=/bin/gtar
+GZIP=/bin/gzip
+HEAD=/usr/bin/head
+ID=/usr/bin/id
+IP=/sbin/ip
+IFCONFIG=/sbin/ifconfig
+INIT=/sbin/init
+LN=/bin/ln
+LS=/bin/ls
+MKDIR=/bin/mkdir
+MORE=/bin/more
+MOUNT=/bin/mount
+MV=/bin/mv
+MYHOSTNAME=/bin/hostname
+NSLOOKUP=/usr/bin/nslookup
+PASSWD=/usr/bin/passwd
+PGREP=/usr/bin/pgrep
+PING=/bin/ping
+PWD=/bin/pwd
+REBOOT=/sbin/reboot
+RM=/bin/rm
+ROUTE=/sbin/route
+RPM=/bin/rpm
+SED=/bin/sed
+SERVICE=/sbin/service 
+SLEEP=/bin/sleep
+SORT=/bin/sort
+SU=/bin/su
+SYNC=/bin/sync
+TAIL=/usr/bin/tail
+TAR=/bin/tar
+TEE=/usr/bin/tee
+TOUCH=/bin/touch
+TPUT=/usr/bin/tput
+TR=/usr/bin/tr
+UMOUNT=/bin/umount
+UNAME=/bin/uname
+USERADD=/usr/sbin/useradd
+WC=/usr/bin/wc
+YES=/usr/bin/yes
+
+# ********************************************************************
+#
+#       Configuration Section
+#
+# ********************************************************************
+
+# Default user
+DEFAULT_USER=root
+DCUSER=dcuser
+DCGROUP=dc5000
+
+# Set install type to be PCP
+INSTALL_TYPE=pcp
+
+# File to hold stage information
+STAGEFILE=${ENIQ_CORE_INST_DIR}/etc/pcp_stagelist
+
+# Cmd to exec a shell and drop user to it in case of an error
+EXEC_SHELL_CMD="exec /bin/bash -o emacs"
+
+# Name of SunOS & ENIQ ini Files
+AUTO_MASTER_TEMPLATE=auto.master.template
+AUTO_NAS_TEMPLATE=auto.nas.template
+PCP_CORE_INSTALL_TAR="pcp_core_install.tar.gz"
+DCUSER_BASH_PROFILE=.bash_profile
+DCUSER_HOME=/home/dcuser
+ENIQ_DIRS=eniq_directories.cfg
+ENIQ_BASE_DIR=/eniq
+ENIQ_INSTALL_DIR=${ENIQ_BASE_DIR}/installation
+ENIQ_CONF_DIR=${ENIQ_INSTALL_DIR}/config
+ENIQ_LIB_DIR=${ENIQ_INSTALL_DIR}/core_install/lib
+ENIQ_TEMPL_DIR=${ENIQ_INSTALL_DIR}/core_install/templates
+JAVA_INSTALLED_VERSION="jdk-1.7.0_80"
+JAVA_INSTALLER_RPM="jdk-7u80-linux-x64.rpm"
+MWS_IP_STOR_FILE=${ENIQ_CONF_DIR}/mws_ip
+MWS_CACHE_DIR_STOR_FILE=${ENIQ_CONF_DIR}/mws_cache_dir
+SYSCONFIG_INI=sys_config.ini
+INTF_PATH="/etc/sysconfig/network-scripts/ifcfg-"
+
+# ENIQ Admin Directory
+ENIQ_ADMIN_DIR=${ENIQ_BASE_DIR}/admin
+# ENIQ Log Directory
+ENIQ_LOG_DIR=${ENIQ_BASE_DIR}/local_logs
+
+# Main Directory for the Core Installation SW
+ENIQ_INST_DIR=${ENIQ_BASE_DIR}/installation
+
+# Main Directory for the Core Installation SW
+ENIQ_CORE_INST_DIR=${ENIQ_INST_DIR}/core_install
+
+# etc Directory where config files are located
+ENIQ_INST_ETC_DIR=${ENIQ_CORE_INST_DIR}/etc
+
+# ENIQ Config Directory
+ENIQ_CONF_DIR=${ENIQ_INST_DIR}/config
+
+# Cache dir on MWS where RPMS are located
+#RPM_CACHE_DIR="${MWS_CACHE}/applications/cep_mediation/rpms/"
+#RPM_CACHE_DIR="${MWS_CACHE}/eniq_linux/packages/"
+
+source conf_capture_card.bsh
+source pcp_core.bsh

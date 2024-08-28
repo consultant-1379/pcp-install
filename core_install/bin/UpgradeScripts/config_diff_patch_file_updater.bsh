@@ -1,0 +1,50 @@
+#!/bin/bash
+# ********************************************************************
+# Ericsson Radio Systems AB                                     SCRIPT
+# ********************************************************************
+#
+#
+# (c) Ericsson Radio Systems AB 2011 - All rights reserved.
+#
+# The copyright to the computer program(s) herein is the property
+# of Ericsson Radio Systems AB, Sweden. The programs may be used
+# and/or copied only with the written permission from Ericsson Radio
+# Systems AB or in accordance with the terms and conditions stipulated
+# in the agreement/contract under which the program(s) have been
+# supplied.
+#
+# ********************************************************************
+# Name    : config_diff_patch_file_updater.bsh
+# Date    : 24/10/2012
+# Revision: R1A01
+# Purpose : This patches a config file by comparing the actual file to the old
+# 			default file, then patching the new default file to match the old 
+# 			one.
+#
+# Usage   : config_diff_patch_file_updater.bsh <OLD_DEFAULT> <NEW_DEFAULT> <CONFIG_FILE> <LOGFILE>
+#
+# ********************************************************************
+#
+
+#
+
+OLD_DEFAULT=$1
+NEW_DEFAULT=$2
+DIFF_FILE=diff.tmp 
+
+CONFIG_FILE=$3
+
+LOGFILE=$4
+
+echo diff -w -C 1 $OLD_DEFAULT $CONFIG_FILE \>$DIFF_FILE | tee -a ${LOGFILE} 
+diff -w -C 1 $OLD_DEFAULT $CONFIG_FILE >$DIFF_FILE
+echo mv $CONFIG_FILE $CONFIG_FILE'.old' | tee -a ${LOGFILE} 
+mv $CONFIG_FILE $CONFIG_FILE'.old' 
+echo cp $NEW_DEFAULT $CONFIG_FILE | tee -a ${LOGFILE} 
+cp $NEW_DEFAULT $CONFIG_FILE
+echo patch -f $CONFIG_FILE $DIFF_FILE | tee -a ${LOGFILE} 
+patch -f $CONFIG_FILE $DIFF_FILE >> 1&2 ${LOGFILE} 
+echo rm -f $DIFF_FILE | tee -a ${LOGFILE} 
+rm -f $DIFF_FILE
+
+

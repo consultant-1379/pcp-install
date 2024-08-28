@@ -1,0 +1,1616 @@
+#!/bin/bash
+# **********************************************************************
+# Ericsson Radio Systems AB                                     SCRIPT
+# **********************************************************************
+#
+# (c) Ericsson Radio Systems AB 2011 - All rights reserved.
+#
+# The copyright to the computer program(s) herein is the property of
+# Ericsson Radio Systems AB, Sweden. The programs may be used and/or
+# copied only with the written permission from Ericsson Radio Systems AB
+# or in accordance with the terms and conditions stipulated in the
+# agreement/contract under which the program(s) have been supplied.
+#
+# **********************************************************************
+# Name    : pcp_core.bsh
+# Date    : 17/09/2013
+# Revision: R1A01
+# Purpose : Main script handling the installation of PCP on Linux.
+#     It will call all necessary scripts to complete the installation
+#
+# Usage   : pcp_core.bsh
+#
+# **********************************************************************
+#
+#   Command Section
+#
+# **********************************************************************
+
+
+### Function: link_to_larger_disk_space_set_permissions_on_napatech ###
+#
+#   This function configures symbolic links to the partition created during the install to
+#   ensure that output files created do not flood the root partition.
+# In addtion this function set the permissions on the napatech configutration directory
+#   to ensure all users can read from the streams.
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+set_permissions_on_napatech()
+{
+  insert_header_footer head "Entering link and set stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  # ----- Change the permissions and owner of the ntservice files for DEFTFTS-3509. -----
+  chmod 777 /opt/napatech3/config/*
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to update the permissions of the napatech config dir"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+  chmod 777 /opt/napatech3/bin/*
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to update the permissions of the napatech bin dir"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+  chown pcpuser /opt/napatech3/config/*
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to update the owner of the napatech config dir"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+  chown pcpuser /opt/napatech3/bin/*
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to update the owner of the napatech bin dir"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+  # ----- Change the permissions and owner of the ntservice files. -----
+
+  insert_header_footer foot "Ending link and set stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+#### Function: config syslog to allow other user to read ###
+#
+#
+config_syslog()
+{
+  insert_header_footer head "Entering Mounting of MWS stage - ${NEXT_STAGE}" ${LOGFILE}
+  
+  pcp_rsyslog_conf=/opt/ericsson/pcp_capture_card_conf/pcp_capture_card_conf/rsyslog.conf
+  syslog_file=/var/log/messages
+  syslog_conf_file=/etc/rsyslog.conf
+  service rsyslog stop
+  cat $pcp_rsyslog_conf > $syslog_conf_file
+  chmod 644 $syslog_file
+  service rsyslog start
+  
+  insert_header_footer foot "Ending Mounting of MWS stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: build_ini_file ###
+#
+#   This function updates the sys_config.ini file with the values entered at inirator stage
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+build_ini_file()
+{
+  if [ ! -s ${ENIQ_INST_ETC_DIR}/${SYSCONFIG_INI} ]; then
+    _err_msg_="${ENIQ_INST_ETC_DIR}/${SYSCONFIG_INI} not found, or is empty"
+    abort_script "$_err_msg_"
+  fi
+
+  # Backup ini file
+  cp ${ENIQ_INST_ETC_DIR}/${SYSCONFIG_INI} ${TEM_DIR}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not backup ${ENIQ_INST_ETC_DIR}/${SYSCONFIG_INI}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  # Adding hosts info to ini file
+  iniset LICENSE_HOST -f ${TEM_DIR}/${SYSCONFIG_INI} lic_ip="${LICSRVR_IP}"
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not set LICENSE_HOST to ${LICSRVR_IP} in ${TEM_DIR}/${SYSCONFIG_INI}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+}
+
+### Function: mount_mws_directories ###
+#
+#   This is called in order to mount up the /tmp/eric_mnt, /tmp/OM and
+#   /tmp/APP directories located on the MWS
+#
+# Arguments:
+#       none
+# Return Valuescard
+#       none
+mount_mws_directories()
+{
+  insert_header_footer head "Entering Mounting of MWS stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  $MOUNT -o nolock `cat ${ENIQ_CONF_DIR}/linux_media_mount` /tmp/eric_mnt | $TEE -a ${LOGFILE}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not mount the linux media cache directory"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+  $MOUNT -o nolock `cat ${ENIQ_CONF_DIR}/om_media_mount` /tmp/OM  | $TEE -a ${LOGFILE}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not mount the O&M media cache directory"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+  $MOUNT -o nolock `cat ${ENIQ_CONF_DIR}/application_mount` /tmp/APP | $TEE -a ${LOGFILE}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not mount the application media directory"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  insert_header_footer foot "Ending Mounting of MWS stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: abort_script ###
+#
+#   This is called if the script is aborted thru an error
+#   signal sent by the kernel such as CTRL-C or if a serious
+#   error is encountered during runtime
+#
+# Arguments:
+#       $1 - Error message from part of program (Not always used)
+# Return Values:
+#       none
+abort_script()
+{
+  _err_time_=`$DATE '+%Y-%b-%d_%H.%M.%S'`
+
+  if [ "$1" ]; then
+    _err_msg_="${_err_time_} - $1"
+  else
+    _err_msg_="${_err_time_} - ERROR : Script aborted......."
+  fi
+
+  if [ "${LOGFILE}" ]; then
+    $ECHO -e "ERROR : $_err_msg_" | $TEE -a ${LOGFILE}
+  else
+    $ECHO -e "ERROR : $_err_msg_"
+  fi
+
+  cd $SCRIPTHOME
+  $RM -rf ${TEM_DIR}
+
+  if [ "$2" ]; then
+    if [ ! "${UPGRADE}" -a ! "${RESTORE}" ]; then
+      ${2}
+    fi
+    exit 1
+  else
+    exit 1
+  fi
+}
+
+### Function: evaluate_mac_addresses ###
+#
+# Function to validate the given list of MAC Addresses.
+# Valid MAC addresses are needed in Pect properties.xml for the PCP application to work.
+#
+# Arguments:
+#     A comma delimited list of MAC addresses
+# Return Values:
+#     0 for success
+#     1 for error
+#
+evaluate_mac_addresses()
+{
+  mac_address_return_code=0
+
+  num_args=$(echo $1 | awk -F ',' '{print NF}')
+
+  if [ $num_args -eq 0 ]; then
+    mac_address_return_code=1
+    echo "    [ERROR]   Please enter a MAC address."
+  fi
+
+  for (( i=1; i<=$num_args; i++ )); do
+
+    mac=$(echo $1 | awk -F ',' -v i=$i '{print $i}' | egrep "^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+
+    if [ "$mac" == "" ]; then
+      echo "    [ERROR]   Mac address in position $i is not correct."
+      mac_address_return_code=1
+    fi
+  done
+
+  return $mac_address_return_code
+}
+
+### Function: get_mac_addresses ###
+#
+# Function to ask for the MAC addresses of the hardware connected upstream.
+# This entry is needed in Pect properties.xml for the PCP application to work.
+#
+# Arguments:
+#     none
+# Return Values:
+#     A comma seperated list of Mac Addresses.
+#
+get_mac_addresses()
+{
+  MAC_LIST=""
+  MAC_LIST_FILE="mac_list.txt"
+
+  while :; do
+
+    echo ""
+    echo "Please enter the MAC addresses of the upstream router(s) connected to this PCP server."
+    echo ""
+    echo "    Enter them in a comma delimited list, without spaces, like they are listed below:"
+    echo "        aa:12:bb:34:cc:56,56:cb:87:df:4f:5c,1a:2b:3c:4d:5e:6f"
+    echo ""
+    echo -n "Mac list > "
+
+    read MAC_LIST
+
+    evaluate_mac_addresses $MAC_LIST
+
+    if [ $? -eq 1 ]; then
+      echo "    [ERROR]   That MAC address list is not correct."
+    else
+      break
+    fi
+  done
+
+  echo $MAC_LIST > $MAC_LIST_FILE
+}
+
+### Function: inirator ###
+#
+#   This function loops through and asks all inirator ques then
+# gets user confirmation that all values entered are correct
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+inirator()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  while :; do
+    # ask for ip of server license manager is installed on
+    get_licenceservice_ip
+
+    # Ask for the MAC addresses
+    get_mac_addresses
+
+    # confirm the user input
+    confirm_user_input
+    if [ "${USER_CONF}" == "Yes" ]; then
+      break
+    fi
+  done
+
+  # update ini file
+  $ECHO "Add inirator values to ${SYSCONFIG_INI} ini file" | $TEE -a ${LOGFILE}
+  build_ini_file
+
+  # copy_ini file
+  $ECHO "Copying ini file ${SYSCONFIG_INI}" | $TEE -a ${LOGFILE}
+  copy_ini_file
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: change_directory_ownership ###
+#
+# Change ownership of all required Directories
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+change_directory_ownership()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  # Get the System User/Group. All directories are owned by this. Hardcoded for PCP.
+  # Needs to be updated to read from SunOS.ini file
+  _sysuser_="dcuser"
+  _sysgrp_="dc5000"
+  _dir_perms_="0755"
+
+  for _dir_ in `$CAT ${ENIQ_CONF_DIR}/${ENIQ_DIRS}`; do
+    $ECHO "Changing ownership of ${_dir_} to ${_sysuser_}:${_sysgrp_}" | $TEE -a ${LOGFILE}
+    $CHOWN -Rh ${_sysuser_}:${_sysgrp_} ${_dir_} >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+      _err_msg_="Could not change ownership of ${_dir_} to ${_sysuser_}:${_sysgrp_}"
+      abort_script "$_err_msg_"
+    fi
+
+    $ECHO "Changing permissions on ${_dir_} to ${_dir_perms_}"  | $TEE -a ${LOGFILE}
+    $CHMOD -f ${_dir_perms_} ${_dir_} >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+      _err_msg_="Could not change directory ${_dir_} permissions to ${_dir_perms_}"
+      abort_script "$_err_msg_"
+    fi
+  done
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: chk_create_logfile ###
+#
+# Check/Create Logfile
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+chk_create_logfile()
+{
+  $MKDIR -p `$DIRNAME ${LOGFILE}`
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not create directory `$DIRNAME ${LOGFILE}`"
+    abort_script "$_err_msg_"
+  fi
+
+  $TOUCH -a ${LOGFILE}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not write to file ${LOGFILE}"
+    abort_script "$_err_msg_"
+  fi
+}
+
+### Function: chk_ERICpcp_installed ###
+#
+# Check if the PCP rpm is already installed.
+# If no, then install, if yes, error out with message
+# Arguments:
+#   none
+chk_ERICpcp_installed()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  _ERICpcp_installed_=`$RPM -qa | $EGREP "^ERICpcp-pect"`
+
+  if [ "${_ERICpcp_installed_}" ]; then
+    _err_msg_="Packet Capture Pre-processor - ${_ERICpcp_installed_} already installed. Please remove ${_ERICpcp_installed_} before trying to -reinstall"
+    abort_script "$_err_msg_"
+  else
+    $ECHO "No ERICpcp-pect package found installed on the server" | $TEE -a ${LOGFILE}
+  fi
+  
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: chk_java_installed ###
+#
+# Check if jdk rpm is already installed.
+# If no then install, if yes skip installation
+# Arguments:
+#   none
+chk_java_installed()
+{
+  _java_installed_=`$RPM -qa | $EGREP "^${JAVA_INSTALLED_VERSION}"`
+
+  if [ "${_java_installed_}" ]; then
+    return 1;
+  else
+    return 0;
+  fi
+}
+
+### Function: configure_gw ###
+#
+# Function to check that the default gateway has been correctly
+# configured by kickstart in /etc/sysconfig/network file.
+# If entry for GATEWAY is present it does nothing
+# If no GATEWAY entry it will print route table and take the
+# GW and interface defined by efault for Destination 0.0.0.0
+#
+# Arguments:
+# none
+# Return Values:
+#   none
+#
+configure_gw()
+{
+local _ntwk_file_
+insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+$ECHO "Checking if default gateway defined in ${NTWK_FILE}" | $TEE -a ${LOGFILE}
+if [ ! -s ${NTWK_FILE} ]; then
+  _err_msg_="Could not find ${NTWK_FILE}"
+  abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+fi
+
+$CAT ${NTWK_FILE} | $EGREP "GATEWAY" >> /dev/null 2>&1
+if [ $? -eq 0 ]; then
+  $CAT ${NTWK_FILE} | $EGREP "GATEWAY=" | $AWK -F"=" '{print$2}' >> /dev/null 2>&1
+  _dflt_gw_=`$CAT ${NTWK_FILE} | $EGREP "GATEWAY=" | $AWK -F"=" '{print$2}'`
+  $ECHO "Default gateway set as ${_dflt_gw_} in ${NTWK_FILE}" | $TEE -a ${LOGFILE}
+
+else
+  $ECHO "No default gateway set in ${NTWK_FILE}" | $TEE -a ${LOGFILE}
+  $ROUTE -n > ${TEM_DIR}/routing
+  $ECHO "Current routing table:" | $TEE -a ${LOGFILE}
+  $CAT ${TEM_DIR}/routing | $TEE -a ${LOGFILE}
+  cp ${NTWK_FILE} ${TEM_DIR}/network.$$ >> /dev/null 2>&1
+  if [ $? -ne 0 ]; then
+  _err_msg_="Failed to update ${NTWK_FILE}"
+  abort_script "$_err_msg_"
+  fi
+  _ntwk_file_=${TEM_DIR}/network.$$
+  while read _rt_ ; do
+    _dest_=`$ECHO ${_rt_} | $AWK -F" " '{print$1}'`
+    _dest_=`echo ${_rt_} | awk -F" " '{print$1}'`
+    if [ "${_dest_}" == "0.0.0.0" ]; then
+      _gw_=`$ECHO ${_rt_} | $AWK -F" " '{print$2}'`
+      _iface_=`$ECHO ${_rt_} | $AWK -F" " '{print$8}'`
+      $ECHO "Default gateway for 0.0.0.0 is ${_gw_} using interface ${_iface_}" | $TEE -a ${LOGFILE}
+    fi
+  done <${TEM_DIR}/routing
+
+  $ECHO "Backing up ${NTWK_FILE} to ${NTWK_FILE}.$$"
+  $ECHO "Updating ${NTWK_FILE}" | $TEE -a ${LOGFILE}
+  cp ${NTWK_FILE} ${NTWK_FILE}.$$ >> /dev/null 2>&1
+  if [ $? -ne 0 ]; then
+  _err_msg_="Failed to backup ${NTWK_FILE} to ${NTWK_FILE}.$$"
+  abort_script "$_err_msg_"
+  fi
+  $ECHO "GATEWAY=\"${_gw_}\"" >> ${_ntwk_file_}
+  $ECHO "GATEWAYDEV=\"${_iface_}\"" >> ${_ntwk_file_}
+  cp -f ${_ntwk_file_} ${NTWK_FILE} >> /dev/null 2>&1
+  if [ $? -ne 0 ]; then
+  _err_msg_="Failed to copy ${_ntwk_file_} to ${NTWK_FILE}"
+  abort_script "$_err_msg_"
+  fi
+fi
+
+insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: confirm_user_input ###
+#
+# Confirm with user that values entered are correct
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+confirm_user_input()
+{
+  _disp_file_=${TEM_DIR}/disp_file
+  $RM -f ${_disp_file_}
+
+  $ECHO -e "\nUSER VALUE CONFIRMATION" >> ${_disp_file_}
+  $ECHO -e "======================="   >> ${_disp_file_}
+
+  if [ "${LICSRVR_IP}" ]; then
+    $ECHO -e "\nLicense server IP:\t ${LICSRVR_IP}" >> ${_disp_file_}
+  fi
+
+  if [ "$MAC_LIST" ]; then
+    $ECHO -e "\n\nMAC addresses:\t $MAC_LIST" >> ${_disp_file_}
+  fi
+
+  while :; do
+    $CLEAR
+    $CAT ${_disp_file_}
+
+    $ECHO -e "\n\nAre the values above correct (Yes/No)"
+    read USER_CONF
+
+    # Check we have a response
+    if [ ! "${USER_CONF}" ]; then
+      continue
+    fi
+
+    # Did the user input (Yes or No)
+    if [ "${USER_CONF}" == "Yes" -o "${USER_CONF}" == "No" ]; then
+      break
+    else
+      continue
+    fi
+  done
+
+export USER_CONF
+}
+
+### Function: copy_ini_file ###
+#
+# Copy the sys_config.ini file into /eniq/installation/config
+# Arguments:
+#   none
+copy_ini_file()
+{
+  if [ ! -s ${TEM_DIR}/${SYSCONFIG_INI} ]; then
+    _err_msg_="${TEM_DIR}/${SYSCONFIG_INI} not found, or is empty"
+    abort_script "$_err_msg_"
+  fi
+
+  $ECHO -e "Copying ${TEM_DIR}/${SYSCONFIG_INI} to ${ENIQ_CONF_DIR}/${SYSCONFIG_INI}" | $TEE -a ${LOGFILE}
+  cp ${TEM_DIR}/${SYSCONFIG_INI} ${ENIQ_CONF_DIR}/${SYSCONFIG_INI}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not move ${TEM_DIR}/${SYSCONFIG_INI} to ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} `$DATE '+%y%m%d'`"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+}
+
+### Function: create_users ###
+#
+# Create the system users listed in the users.ini file
+# Arguments:
+#   none
+create_users()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  _user_list_=`iniget USERS -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI}`
+  if [ ! "${_user_list_}" ]; then
+    _err_msg_="Could not get a list of system users to create"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  for _user_ in ${_user_list_}; do
+    _sys_user_name_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v name`
+    _sys_user_uid_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v uid`
+    _sys_user_gid_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v gid`
+    _sys_user_gname_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v gname`
+    _sys_user_sgid_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v sgid`
+    _sys_user_real_name_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v realname`
+    _sys_user_home_dir_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v home`
+    _sys_user_shell_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v shell`
+    _sys_user_password_=`iniget ${_user_} -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v password`
+
+    if [ ! "${_sys_user_name_}" -o ! "${_sys_user_uid_}" -o ! "${_sys_user_gid_}" -o ! "${_sys_user_gname_}" -o ! "${_sys_user_sgid_}" -o ! "${_sys_user_real_name_}" -o ! "${_sys_user_home_dir_}" -o ! "${_sys_user_shell_}" -o ! "${_sys_user_password_}" ]; then
+      _err_msg_="Could not read required parameters for ${_user_} from ${ENIQ_CONF_DIR}/${SYSCONFIG_INI}"
+      abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+    $ECHO "Creating group ${_sys_user_gname_}" | $TEE -a ${LOGFILE}
+    $GROUPADD -f -g ${_sys_user_gid_} ${_sys_user_gname_}
+    if [ $? -ne 0 ]; then
+      _err_msg_="Failed to add group  ${_sys_user_gname_}\n"
+      abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+      $ECHO "Creating user ${_sys_user_name_}" | $TEE -a ${LOGFILE}
+      $USERADD -m -d ${_sys_user_home_dir_} -g ${_sys_user_gid_} -c ${_sys_user_real_name_} -u ${_sys_user_uid_} -p PASSWD ${_sys_user_name_} > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+      _err_msg_="Failed to add user account ${_sys_user_name_}\n"
+      abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+    if [ ! -f /etc/shadow.orig ]; then
+      $CP -p /etc/shadow /etc/shadow.orig
+    fi
+
+    $ECHO "Updating /etc/shadow file for ${_sys_user_name_}\n" >> ${LOGFILE}
+    $CAT /etc/shadow | $SED -e "s/^${_sys_user_name_}:PASSWD/${_sys_user_name_}:${_sys_user_password_}/" > ${TEM_DIR}/shadow
+    if [ $? -ne 0 ]; then
+      _err_msg_="Failed to update the password for ${_sys_user_name_}\n"
+      abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+    ls -l /etc/shadow
+    $CP ${TEM_DIR}/shadow /etc/shadow
+    if [ $? -ne 0 ]; then
+      $CP -p /etc/shadow.orig /etc/shadow
+      _err_msg_="Failed to update the password for ${_sys_user_name_}\n"
+      abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+  done
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: expand_and_mount_partition ###
+#
+# This
+# Arguments:
+#   none
+expand_and_mount_partition()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  if [ `fdisk -l 2>/dev/null | grep "vg_root-vg" | wc -l` -ne 0 ]; then
+    _err_msg_="Currently a partition is set to vg_root-vg--storage, aborting the attempt to mount addtional storage\n"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  echo "Extending the Volume Group." | $TEE -a ${LOGFILE}
+  sd_disks="disks.tmp"
+  ls /dev/ | grep sd > $sd_disks
+  while read sd_disk; do
+    sd_to_extend_into="/dev/$sd_disk"
+    vgextend vg_root $sd_to_extend_into 2>/dev/null
+  done < $sd_disks
+  rm -f $sd_disks
+
+  echo "Creating the logical volume" | $TEE -a ${LOGFILE}
+  lvcreate -l 100%FREE -n vg_root-storage vg_root >> ${LOGFILE}
+  if [ $? -ne 0 ]; then
+    $CP -p /etc/shadow.orig /etc/shadow
+    _err_msg_="Failed to create the logical volume\n"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  echo "Creating file system on the logical voloume" | $TEE -a ${LOGFILE}
+  mkfs.ext4 /dev/mapper/vg_root-vg_root--storage >> ${LOGFILE}
+  if [ $? -ne 0 ]; then
+    $CP -p /etc/shadow.orig /etc/shadow
+    _err_msg_="Failed to create the file system on the logical volume\n"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  echo "Creating the mount point for the logical volume" | $TEE -a ${LOGFILE}
+  mkdir /mnt/storage >> ${LOGFILE}
+  if [ $? -ne 0 ]; then
+    $CP -p /etc/shadow.orig /etc/shadow
+    _err_msg_="Failed to create the mount point for the logical volume\n"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  echo "Mounting the logical volume" | $TEE -a ${LOGFILE}
+  mount -t ext4 /dev/mapper/vg_root-vg_root--storage /mnt/storage/ >> ${LOGFILE}
+  if [ $? -ne 0 ]; then
+    $CP -p /etc/shadow.orig /etc/shadow
+    _err_msg_="Failed to mount the logical volume\n"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  # Ensure that the storage volumes are remounted after a reboot.
+  if [ $(cat /etc/fstab | grep /dev/mapper/vg_root-vg_root--storage | wc -l) -eq 0 ]; then
+    echo '/dev/mapper/vg_root-vg_root--storage /mnt/storage ext4 defaults 0 0' >> /etc/fstab
+  fi
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: cleanup ###
+#
+# Function to cleanup once installation
+# is completed
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+cleanup()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  # Remove the pcp_core_install.tar.gz file
+  if [ -f ${ENIQ_INST_DIR}/${PCP_CORE_INSTALL_TAR} ]; then
+    $ECHO "Removing  ${ENIQ_INST_DIR}/${PCP_CORE_INSTALL_TAR}" | $TEE -a ${LOGFILE}
+    $RM -rf ${ENIQ_INST_DIR}/${PCP_CORE_INSTALL_TAR}
+    if [ $? -ne 0 ]; then
+      _err_msg_="Failed to remove ${ENIQ_INST_DIR}/${PCP_CORE_INSTALL_TAR}"
+      abort_script "$_err_msg_"
+    fi
+  fi
+  
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+}
+
+### Function: create_directories ###
+#
+# Creates all required Directories
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+create_directories()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  # Get the System User/Group. All directories are owned by this. Hardcoded for ENIQ A at present.
+  # Needs to be updated to read from SunOS.ini file
+  _sysuser_="dcuser"
+  _sysgrp_="dc5000"
+  _dir_perms_="0755"
+
+  $MKDIR -p ${ENIQ_CONF_DIR}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not create ${ENIQ_CONF_DIR}"
+    abort_script "$_err_msg_"
+  fi
+
+  # Copy the eniq directories file to config directory loop through and create each directory
+  if [ ! -s ${ENIQ_INST_ETC_DIR}/${ENIQ_DIRS} ]; then
+    _err_msg_="Could not locate ${ENIQ_INST_ETC_DIR}/${ENIQ_DIRS}"
+    abort_script "$_err_msg_"
+  fi
+
+  $CP ${ENIQ_INST_ETC_DIR}/${ENIQ_DIRS} ${ENIQ_CONF_DIR}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not copy ${ENIQ_INST_ETC_DIR}/${ENIQ_DIRS} to ${ENIQ_CONF_DIR}"
+    abort_script "$_err_msg_"
+  fi
+
+  for _dir_path_ in `$CAT ${ENIQ_CONF_DIR}/${ENIQ_DIRS}`; do
+    $ECHO "Creating directory ${_dir_path_}" | $TEE -a ${LOGFILE}
+    $MKDIR -p ${_dir_path_}
+    if [ $? -ne 0 ]; then
+      _err_msg_="Could not create directory ${_dir_path_}"
+      abort_script "$_err_msg_"
+    fi
+  done
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: get_absolute_path ###
+#
+# Determine absolute path to software
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+get_absolute_path()
+{
+  _dir_=`$DIRNAME $0`
+  SCRIPTHOME=`cd $_dir_ 2>/dev/null && pwd || $ECHO $_dir_`
+}
+
+### Function: get_array_element ###
+#
+# Get the current array element number
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+get_array_element()
+{
+  _num_elements_=${#ENIQ_CORE_STAGES[*]}
+  _array_length_=`${EXPR} ${_num_elements_} - 1`
+
+  for (( _elem_=0; _elem_<=${_array_length_}; _elem_++ )); do
+    $ECHO ${ENIQ_CORE_STAGES[${_elem_}]} | $GREP -w ${NEXT_STAGE} >> /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+      ARRAY_ELEM=${_elem_}
+      break
+    fi
+  done
+}
+
+### Function: get_next_stage ###
+#
+# Get the stage to be run
+#
+# Arguments:
+#   $1 : Stage to be set to. Either numeric value or 'done'
+# Return Values:
+#   none
+get_next_stage()
+{
+  # File to hold stage information
+  STAGEFILE=${ENIQ_CORE_INST_DIR}/etc/pcp_core_inst_stage
+  ARRAY_ELEM=0
+
+  if [ -s $STAGEFILE ]; then
+    NEXT_STAGE=`$CAT $STAGEFILE | $EGREP -v '^[[:blank:]]*#' | $SED -e 's| ||g'`
+    if [ ! "$NEXT_STAGE" ]; then
+      _err_msg_="Failed to read stage from ${STAGEFILE}, exiting."
+      abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+    if [ "$NEXT_STAGE" == "cleanup" ]; then
+      return 0
+    else
+      $ECHO ${ENIQ_CORE_STAGES[*]} | $GREP -w ${NEXT_STAGE} >> /dev/null 2>&1
+      if [ $? -ne 0 ]; then
+        _err_msg_="Specified stage ${NEXT_STAGE} is not a valid installation stage"
+        abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+      fi
+    fi
+
+    # Get the element number so we can move along the array
+    get_array_element
+  else
+    $MKDIR -p `$DIRNAME $STAGEFILE`
+    if [ $? -ne 0 ]; then
+      _err_msg_="Failed to create directory `$DIRNAME ${STAGEFILE}`, exiting."
+      abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+    fi
+
+    NEXT_STAGE=${ENIQ_CORE_STAGES[${ARRAY_ELEM}]}
+  fi
+}
+
+### Function: insert_header_foorer ###
+#
+#
+insert_header_footer()
+{
+  if [ $# -ne 3 ]; then
+    _err_msg_="3 Parameters must be passed to header/footer function"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  if [ "$1" != "head" -a "$1" != "foot" ]; then
+    _err_msg_="Only Param of head/foot is allowed...exiting!"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+  _type_=$1
+
+  _msg_=$2
+
+  _logfile_=$3
+  $MKDIR -p `$DIRNAME ${_logfile_}`
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not create directory `$DIRNAME ${_logfile_}`"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  $TOUCH -a ${_logfile_}
+  if [ $? -ne 0 ]; then
+    _err_msg_="Could not write to file ${_logfile_}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  _time_=`$DATE '+%Y-%b-%d_%H.%M.%S'`
+  if [ "$_type_" == "head" ]; then
+    $ECHO -e "\n-----------------------------------------------------" | $TEE -a ${_logfile_}
+    $ECHO -e  "-----------------------------------------------------"  | $TEE -a ${_logfile_}
+    $ECHO -e  "$_time_ : $_msg_"                                       | $TEE -a ${_logfile_}
+    $ECHO -e  "-----------------------------------------------------"  | $TEE -a ${_logfile_}
+  fi
+
+  if [ "$_type_" == "foot" ]; then
+    $ECHO -e  "\n-----------------------------------------------------" | $TEE -a ${_logfile_}
+    $ECHO -e  "$_time_ : $_msg_"                                        | $TEE -a ${_logfile_}
+    $ECHO -e  "-----------------------------------------------------"   | $TEE -a ${_logfile_}
+    $ECHO -e  "-----------------------------------------------------\n" | $TEE -a ${_logfile_}
+  fi
+}
+
+### Function: get_licenceservice_ip ###
+#
+# Function to ask for the ip address that the license is installed on
+# This entry is need in /etc/hosts for the PCP application to work
+#
+# Arguments:
+#     none
+# Return Values:
+#     none
+#
+get_licenceservice_ip()
+{
+  while :; do
+    $CLEAR
+    $ECHO "Enter the I.P. address of the server that the license server is installed on."
+
+    read _licsrvr_ipadd_
+    if [ ! "${_licsrvr_ipadd_}" ]; then
+      continue
+    fi
+
+    validate_ip ${_licsrvr_ipadd_}
+    if [ $? -eq 0 ]; then
+      break
+    else
+      continue
+    fi
+  done
+
+  LICSRVR_IP=${_licsrvr_ipadd_}
+  export LICSRVR_IP
+}
+
+## Function: install_ERICpcp_rpm ###
+#
+# This function will install the pcp rpm
+# from cached area on MWS
+#
+# Arguments:
+#   none
+# Return Values:
+#     none
+install_ERICpcp()
+{
+insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+$ECHO "Looking for pcp rpm installer" | $TEE -a ${LOGFILE}
+
+rpm_mount_location=/tmp/APP/eniq_linux/packages
+
+# Check PCP rpm file exists and size > 0
+
+          ########## need the new name for the rpm
+_pcp_rpm_=`$LS ${rpm_mount_location} | $EGREP "^ERICpcp-pect.*[.rpm]$"`
+if [ ! "${_pcp_rpm_}" ]; then
+  _err_msg_="Failed to find PCP rpm - ${_pcp_rpm_} in ${rpm_mount_location}"
+    abort_script "$_err_msg_"
+
+fi
+
+if [ ! -s ${rpm_mount_location}/${_pcp_rpm_} ]; then
+     _err_msg_="No PCP rpm file found in -- ${rpm_mount_location}"
+    abort_script "$_err_msg_"
+fi
+
+$ECHO "${_pcp_rpm_} found in ${rpm_mount_location} beginning installation" | $TEE -a ${LOGFILE}
+
+# Run PCP rpm installation
+${ENIQ_CORE_INST_DIR}/bin/install_all_packages.bsh ${ENIQ_INST_ETC_DIR} ${rpm_mount_location} ${LOGFILE} >> /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+  _err_msg_="Failed to install PCP Mediation ${_pcp_rpm_}"
+    abort_script "$_err_msg_"
+fi
+
+#the install phase does not exit on error thus the install should be verified by running the following function
+#to check the install.
+          ########## need the new name for the rpm
+_ERICpcp_installed_=`$RPM -qa | $EGREP "^ERICpcp-pect"`
+_ERICcapture_card_installed=`$RPM -qa | $EGREP "^ERICpcp_capture_card_conf"`
+
+  if [ "${_ERICpcp_installed_}" ]; then
+
+    $ECHO "${_ERICpcp_installed_} installed on the server" | $TEE -a ${LOGFILE}
+
+  else
+    _err_msg_="Packet Capture Pre-processor - ${_ERICpcp_installed_} did not install. Please consult $LOGFILE for addtional details"
+    abort_script "$_err_msg_"
+  fi
+
+  if [ "${_ERICcapture_card_installed}" ]; then
+
+    $ECHO "${_ERICcapture_card_installed} installed on the server" | $TEE -a ${LOGFILE}
+
+  else
+    _err_msg_="Packet Capture Pre-processor - ${_ERICcapture_card_installed} did not install. Please consult $LOGFILE for addtional details"
+    abort_script "$_err_msg_"
+  fi
+
+insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+
+$ECHO "${RUN_TIME} - Finished install of PCP stage" | $TEE -a ${LOGFILE}
+}
+
+## Function: install_java ###
+#
+# This function will install the java rpm
+# from extracted eniq-a tar file
+#
+# Arguments:
+#  none
+# Return Values:
+#   none
+install_java()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  $ECHO "Checking if JAVA ${JAVA_INSTALLER_RPM} is already installed" | $TEE -a ${LOGFILE}
+  chk_java_installed
+  if [ $? -eq 0 ]; then
+    $ECHO "${JAVA_INSTALLER_RPM} not installed" | $TEE -a ${LOGFILE}
+    $ECHO "Looking for JAVA JDK rpm installer" | $TEE -a ${LOGFILE}
+
+    # Check JAVA JDK rpm install file exists and size > 0
+    _java_rpm_=`$LS ${RPM_CACHE_DIR} | $EGREP "^${JAVA_INSTALLER_RPM}"`
+    if [ ! "${_java_rpm_}" ]; then
+      _err_msg_="Failed to find JAVA JDK rpm - ${JAVA_INSTALLER_RPM} in ${RPM_CACHE_DIR}"
+      abort_script "$_err_msg_"
+    fi
+
+    if [ ! -s ${RPM_CACHE_DIR}/${_java_rpm_} ]; then
+      _err_msg_="JAVA JDK rpm installer ${RPM_CACHE_DIR}/${_java_rpm_} not found, or is empty"
+      abort_script "$_err_msg_"
+    fi
+
+    $ECHO "${_java_rpm_} found in ${RPM_CACHE_DIR} beginning installation" | $TEE -a ${LOGFILE}
+
+    # Run JAVA JDK rpm installation
+    $RPM -i ${RPM_CACHE_DIR}/${_java_rpm_} >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+      _err_msg_="Failed to install JAVA JDK - ${_java_rpm_}"
+      abort_script "$_err_msg_"
+    fi
+
+    $ECHO "Successfully installed JAVA JDK - ${_java_rpm_}"  | $TEE -a ${LOGFILE}
+
+  else
+    $ECHO "JDK version ${_java_installed_} already installed - Skipping java installation" | $TEE -a ${LOGFILE}
+  fi
+  
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: set_mws_cache_dir ###
+#
+# Set up the dir path for the cached area on MWS.
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+set_mws_cache_path()
+{
+  $ECHO "Determining the path to the cached application software on MWS" | $TEE -a ${LOGFILE}
+
+  if [ ! -s ${MWS_IP_STOR_FILE} ] ; then
+    _err_msg_="${MWS_IP_STOR_FILE} does not exist, or is empty"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  if [ ! -s ${MWS_CACHE_DIR_STOR_FILE} ] ; then
+    _err_msg_="${MWS_CACHE_DIR_STOR_FILE} does not exist, or is empty"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  MWS_IP=`$CAT ${MWS_IP_STOR_FILE}`
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to read MWS IP address from ${MWS_IP_STOR_FILE}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  validate_ip ${MWS_IP}
+  if [ $? -ne 0 ]; then
+    _err_msg_="${MWS_IP} stored in ${MWS_IP_STOR_FILE} is not a valid IP address"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  MWS_CACHE_DIR=`$CAT ${MWS_CACHE_DIR_STOR_FILE}`
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to read MWS cache directory from ${MWS_CACHE_DIR_STOR_FILE}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  MWS_CACHE="/net/${MWS_IP}${MWS_CACHE_DIR}"
+}
+
+### Function: set_next_stage ###
+#
+# Set up the stage to be run
+#
+# Arguments:
+#   $1 : Stage to be set to. Either numeric value or 'cleanup'
+# Return Values:
+#   none
+set_next_stage()
+{
+  # Do I have to reset stage
+  if [ "${USER_STAGE}" -a "${NO_RESET_STAGE}" ]; then
+    return 0
+  fi
+
+  _stage_time_=`$DATE '+%Y-%b-%d_%H.%M.%S'`
+  $ECHO "# Setting new stage at $_stage_time_" > ${STAGEFILE} | $TEE -a ${LOGFILE}
+  $ECHO "${ENIQ_CORE_STAGES[$1]} " >> ${STAGEFILE} | $TEE -a ${LOGFILE}
+}
+
+### Function: setup_env ###
+#
+# Set up environment variables for script.
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+setup_env()
+{
+  ENIQ_BASE_DIR=/eniq
+
+  # ENIQ Admin Directory
+  ENIQ_ADMIN_DIR=${ENIQ_BASE_DIR}/admin
+
+  # ENIQ Log Directory
+  ENIQ_LOG_DIR=${ENIQ_BASE_DIR}/local_logs
+
+  # ENIQ Admin Bin Directory
+  ENIQ_ADMIN_BIN_DIR=${ENIQ_ADMIN_DIR}/bin
+
+  # ENIQ Installer Directory
+  ENIQ_INSTALLER_DIR=${ENIQ_BASE_DIR}/sw/installer
+
+  # ENIQ SW conf
+  CLI_CONF_DIR=${ENIQ_BASE_DIR}/sw/conf
+
+  # Main Directory for the Core Installation SW
+  ENIQ_INST_DIR=${ENIQ_BASE_DIR}/installation
+
+  # Main Directory for the Core Installation SW
+  ENIQ_CORE_INST_DIR=${ENIQ_INST_DIR}/core_install
+
+  # etc Directory where config files are located
+  ENIQ_INST_ETC_DIR=${ENIQ_CORE_INST_DIR}/etc
+
+  # ENIQ Config Directory
+  ENIQ_CONF_DIR=${ENIQ_INST_DIR}/config
+
+  # Cache dir on MWS where RPMS are located
+  #RPM_CACHE_DIR="${MWS_CACHE}/applications/cep_mediation/rpms/"
+  RPM_CACHE_DIR="${MWS_CACHE}/eniq_linux/packages/"
+
+  # Directory to network settings in /etc/sysconfig
+  SYS_DIR=/etc/sysconfig
+  NTWK_FILE=${SYS_DIR}/network
+
+  # Source the common functions
+  if [ -s ${ENIQ_LIB_DIR}/common_functions.lib ]; then
+    . ${ENIQ_LIB_DIR}/common_functions.lib
+  else
+    _err_msg_="File ${ENIQ_LIB_DIR}/common_functions.lib not found"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  # Source the common core install functions
+  if [ -s ${ENIQ_LIB_DIR}/common_core_install_functions.lib ]; then
+    . ${ENIQ_LIB_DIR}/common_core_install_functions.lib
+  else
+    _err_msg_="File ${ENIQ_LIB_DIR}/common_core_install_functions.lib not found"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+}
+
+## Function: CheckCompleteInstall###
+#
+# This function is used to check the install of the PCP system
+#
+# Arguments:
+#  none
+# Return Values:
+#   none
+CheckCompleteInstall()
+{
+  # Run the check script here.
+
+  $ECHO "Checking the PCP installation was a success" | $TEE -a ${LOGFILE}
+
+  ${ENIQ_CORE_INST_DIR}/bin/checkInstallScripts/check_Install_OK.sh ${LOGFILE} >> /dev/null 2>&1
+
+  if [ $? -ne 0 ]; then
+    _err_msg_="Check of PCP installation failed please consult the logs"
+    abort_script "$_err_msg_"
+  fi
+
+  $ECHO "The installation check has been completed successfully " | $TEE -a ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: configure capturecard filters ###
+#
+#  This function performs the install of the capture card software
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+napatech_install_main ()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  napatech_working_dir=/opt/ericsson/pcp_capture_card_conf/pcp_capture_card_conf
+
+  filter_type=`iniget NAPATECH_FILTERS -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v filter_type`
+
+  if [ ! "${filter_type}" ]; then
+    _err_msg_="Could not get the NAPATECH_FILTERS from ${ENIQ_CONF_DIR}/${SYSCONFIG_INI}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  _ntpl_filter_file=`$LS ${napatech_working_dir}/${filter_type}/ | $GREP ntpl`
+
+  if [ ! "${filter_type}" ]; then
+    _err_msg_="Could not get the ntpl file from ${napatech_working_dir}/${filter_type}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  echo "Using $napatech_working_dir/$filter_type/ntservice.ini for capture card configuration" | $TEE -a ${LOGFILE}
+  echo "$napatech_working_dir/$filter_type/$_ntpl_filter_file for capture card configuration" | $TEE -a ${LOGFILE}
+  echo "$napatech_working_dir/$filter_type/ntpcap.ini for capture card configuration" | $TEE -a ${LOGFILE}
+
+  napatech_install_helper $napatech_working_dir/ntcap_package_3gd_linux_13.1.3 -notcpdump  $napatech_working_dir/$filter_type/ntservice.ini  $napatech_working_dir/$filter_type/$_ntpl_filter_file $napatech_working_dir/$filter_type/ntpcap.ini ${LOGFILE}
+
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to install the capture card software"
+    abort_script "$_err_msg_"
+  fi
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+
+}
+
+### Function: configure pcp ###
+#
+#  This function takes an ini file supplied in the software and builds the
+#  configuration required for the relevent deployment.
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+configure_pcp()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  _working_dir=/opt/ericsson/pcp_capture_card_conf/pcp_capture_card_conf
+  configuration_file_location=/opt/ericsson/pcp/pect/pect
+  MAC_LIST_FILE="mac_list.txt"
+
+  filter_type=`iniget NAPATECH_FILTERS -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v filter_type`
+
+  if [ ! "${filter_type}" ]; then
+    _err_msg_="Could not get the filter type from ${ENIQ_CONF_DIR}/${SYSCONFIG_INI}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  echo "Collecting the required MAC address"
+  echo $SYSCONFIG_INI
+  echo $configuration_file_location
+  echo $_working_dir
+  echo $ENIQ_CONF_DIR
+  echo $ENIQ_CORE_INST_DIR
+  echo $MAC_LIST_FILE
+  echo $LOGFILE
+  ${ENIQ_CORE_INST_DIR}/bin/mac_address_replacement.bsh $SYSCONFIG_INI $configuration_file_location $_working_dir $ENIQ_CONF_DIR $ENIQ_CORE_INST_DIR $MAC_LIST_FILE $LOGFILE
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to update the pcp configuration plese check the status of $configuration_file_location/properties.xml and restore the backups if necessary"
+    abort_script "$_err_msg_"
+  fi
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+
+}
+
+### Function: setup library paths ###
+#
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+setup_library_paths()
+{
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  _ericsson_lib_path_file_=/etc/ld.so.conf.d/ericsson_lib_path.conf
+  _napatech_lib_path_file_=/etc/ld.so.conf.d/napatech_lib_path.conf
+  _ericsson_lib_path_=/opt/ericsson/lib/
+  _napatech_lib_path_=/opt/napatech3/lib/
+
+  touch ${_ericsson_lib_path_file_}
+
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to create the ericsson library path configuration file"
+    abort_script "$_err_msg_"
+  fi
+
+  touch ${_napatech_lib_path_file_}
+
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to create the napatech library path configuration file"
+    abort_script "$_err_msg_"
+  fi
+
+  echo ${_ericsson_lib_path_} > ${_ericsson_lib_path_file_}
+  echo ${_napatech_lib_path_} > ${_napatech_lib_path_file_}
+
+  ldconfig >> /dev/null 2>&1
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+
+}
+
+### Function: configure capturecard filters ###
+#
+#   This function checks that a capture card is installed in the correct location
+# and sets the sys_config.ini file to hold the correct filter tar name.
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+capture_card_check()
+{
+
+  insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+  $ECHO "Checking the capturecard and setting filter file" | $TEE -a ${LOGFILE}
+
+  ${ENIQ_CORE_INST_DIR}/bin/installed_capturecard_config_selection.bsh ${ENIQ_CONF_DIR} ${SYSCONFIG_INI} ${LOGFILE} >> /dev/null 2>&1
+
+  if [ $? -ne 0 ]; then
+    _err_msg_="Failed to find a valid capture card configuration"
+    abort_script "$_err_msg_"
+  fi
+
+  $ECHO "Finished checking the capture card configuration and selecting the filter to load" | $TEE -a ${LOGFILE}
+
+  insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+
+}
+
+### Function: update_hosts ###
+#
+#   This function loops through and asks all inirator questions then
+# gets user confirmation that all values entered are correct
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+update_hosts()
+{
+insert_header_footer head "Entering core install stage - ${NEXT_STAGE}" ${LOGFILE}
+
+# Update hosts
+# Add nas virtual ips
+
+local _lic_ip_ _lic_alias_
+
+$ECHO -e "Reading License server details from ${ENIQ_CONF_DIR}/${SYSCONFIG_INI}" | $TEE -a ${LOGFILE}
+
+_lic_ip_=`iniget LICENSE_HOST -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v lic_ip`
+if [ ! "${_lic_ip_}" ]; then
+  _err_msg_="Could not get the LICENSE_HOST ip from ${SYSCONFIG_INI}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+fi
+
+_lic_alias_=`iniget LICENSE_HOST -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v lic_alias`
+if [ ! "${_lic_alias_}" ]; then
+  _err_msg_="Could not get the LICENSE_HOST alias from ${SYSCONFIG_INI}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+fi
+
+# Add licenceservice ip
+$ECHO -e "Adding license server details to hosts file" | $TEE -a ${LOGFILE}
+$ECHO -e "${_lic_ip_} ${_lic_alias_}" >> ${TEM_DIR}/include_in_hosts
+
+# Create a backup of hosts file
+$ECHO "Backing up /etc/hosts to /etc/hosts.$$" | $TEE -a ${LOGFILE}
+cp -p /etc/hosts /etc/hosts.$$>> /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    _err_msg_="Failed to backup /etc/hosts file"
+    abort_script "$_err_msg_"
+fi
+
+# Update hosts
+$CAT /etc/hosts | $EGREP -v "licenceservice$" >> ${TEM_DIR}/hosts.$$
+$CAT ${TEM_DIR}/include_in_hosts >> ${TEM_DIR}/hosts.$$
+
+# Make a backup of the hosts file
+$ECHO "Updating /etc/hosts with licenceservice values" | $TEE -a ${LOGFILE}
+cp -p ${TEM_DIR}/hosts.$$ /etc/hosts >> /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    _err_msg_="Could not copy ${TEM_DIR}/hosts.$$ to /etc/hosts"
+    abort_script "$_err_msg_"
+fi
+
+insert_header_footer foot "Successfully completed core install stage - ${NEXT_STAGE}" ${LOGFILE}
+set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+
+}
+
+### Function: setup_pcp_aliases ###
+#
+#   This function calls the setupAliases.bsh
+#   The setupAliases.bsh sets up the aliases for
+#       PCP_Kill_Orphans
+#       PCP_Get_Installed_Software
+#       PCP_Server_Start
+#       PCP_Server_Stop
+#       PCP_Server_Restart
+#       PCP_Server_Status
+#
+# Arguments:
+#       none
+# Return Values:
+#       none
+setup_pcp_aliases()
+{
+  STAGENAME="the Setup PCP Aliases stage"
+
+  insert_header_footer head "Entering $STAGENAME - ${NEXT_STAGE}" ${LOGFILE}
+
+  # Call script
+  /eniq/installation/core_install/bin/PCP_Aliases/setupAliases.bsh
+
+  # Attempt to source the .bashrc file
+  source /root/.bashrc
+
+  insert_header_footer foot "Successfully completed $STAGENAME - ${NEXT_STAGE}" ${LOGFILE}
+  set_next_stage `$EXPR ${ARRAY_ELEM}+1`
+}
+
+### Function: usage_msg ###
+#
+#   Print out the usage message
+#
+# Arguments:
+#   none
+# Return Values:
+#   none
+usage_msg()
+{
+$CLEAR
+$ECHO "
+Usage: `$BASENAME $0` [ -l <path_to_logfile> ]
+
+options:
+
+-l  : Optional parameter specifying the full path to logfile. If not specified, a
+      logfile will be created in <ENIQ BASEDIR>/local_logs/installation
+"
+}
+
+### Function: validate_ip ###
+#
+# This function will check that an
+# IP address is valid
+#
+# Arguments:
+#       $1 : IP address to be validated
+# Return Values:
+#       0 : Success
+#       1 : Error
+validate_ip()
+{
+  _chk_ip_=$1
+  _err_flag_=0
+
+  if [[ ${_chk_ip_} =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    _orig_ifs_="$IFS"
+    IFS='.'
+
+    _chk_ip_array_=($_chk_ip_)
+    IFS="${_orig_ifs_}"
+
+    _array_length_="${#_chk_ip_array_[@]}"
+    if [ ${_array_length_} -ne 4 ]; then
+      _err_flag_=1
+    fi
+
+    for (( i=0; i<${_array_length_}; i++ )); do
+      if [ ${_chk_ip_array_[$i]} -lt 0 -o ${_chk_ip_array_[$i]} -gt 255 ]; then
+        _err_flag_=1
+      fi
+    done
+  else
+    _err_flag_=1
+  fi
+
+  if [ ${_err_flag_} -eq 0 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# ********************************************************************
+#
+#   Main body of program
+#
+# ********************************************************************
+#
+RUN_TIME=`$DATE '+%Y-%b-%d_%H.%M.%S'`
+# Determine absolute path to software
+get_absolute_path
+
+# Check that the effective id of the user is root
+#check_id $DEFAULT_USER
+
+while getopts ":l:n:s" arg; do
+  case $arg in
+    l) LOGFILE="$OPTARG"
+      ;;
+    n) NO_RESET_STAGE="YES"
+      ;;
+    s) USER_STAGE="$OPTARG"
+      ;;
+   \?) usage_msg
+      exit 1
+      ;;
+  esac
+done
+
+
+# Setup up path environment etc
+set_mws_cache_path
+setup_env
+
+# Check/Create Logfile
+# Log file
+if [ ! "${LOGFILE}" ]; then
+  LOGFILE="${ENIQ_LOG_DIR}/installation/`${MYHOSTNAME}`_install.log"
+fi
+chk_create_logfile
+
+$ECHO "=======================================================" >> ${LOGFILE}
+$ECHO "${RUN_TIME} - Entering Core Installation"                >> ${LOGFILE}
+$ECHO "=======================================================" >> ${LOGFILE}
+
+# Create a temporary Directory
+TEM_DIR=/tmp/manage_cep_setup.$$.$$
+$RM -rf ${TEM_DIR}
+$MKDIR -p ${TEM_DIR}
+if [ $? -ne 0 ]; then
+  _err_msg_="Could not create directory ${TEM_DIR}"
+  abort_script "$_err_msg_"
+fi
+
+core_install_build_stage_array ${LOGFILE} ${TEM_DIR} ${INSTALL_TYPE} ${ENIQ_CORE_INST_DIR}
+if [ $? -ne 0 ]; then
+  _err_msg_="Could not build a stage array for ${CURR_SERVER_TYPE}"
+  abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+fi
+
+if [ "$USER_STAGE" ]; then
+  core_install_check_user_stage ${LOGFILE} ${TEM_DIR} ${USER_STAGE}
+fi
+
+if [ "$USER_STAGE" ]; then
+  NEXT_STAGE="${USER_STAGE}"
+  # Get the element number so we can move along the array
+  get_array_element
+else
+  get_next_stage
+fi
+
+# If we read cleanup from the stagefile
+if [ "$NEXT_STAGE" == "cleanup" ]; then
+  # We exit unless the user specified that the stage be run again
+  if [ ! "$USER_STAGE" ]; then
+    $ECHO "All Stages are already completed"
+    exit 0
+  fi
+fi
+
+# Loop through the stages for installation
+while :; do
+  _nxt_stage_="${NEXT_STAGE}"
+  $_nxt_stage_
+  if [ $? -ne 0 ]; then
+    _err_msg_="Error in Stage ${NEXT_STAGE}"
+    abort_script "$_err_msg_" "${EXEC_SHELL_CMD}"
+  fi
+
+  # Exit if the user specified to run a specific stage only
+  if [ "$USER_STAGE" ]; then
+    break
+  fi
+
+  # If we read cleanup from the stagefile
+  if [ "$NEXT_STAGE" == "cleanup" ]; then
+    break
+  fi
+
+  # Exit if the user specified to run a stop at a certain stage only
+  if [ "${_stop_stage_}" ]; then
+    # Exit if the user specified to run a stop at a certain stage only
+    if [ "${NEXT_STAGE}" == "${_stop_stage_}" ]; then
+      $ECHO "\n\nStopping after stage ${NEXT_STAGE} at user request"
+      $RM -f ${ENIQ_CONF_DIR}/extra_params/stop_stage
+      break
+    fi
+  fi
+
+  get_next_stage
+done
+
+$RM -rf ${TEM_DIR}
+
+$ECHO "=======================================================" >> ${LOGFILE}
+$ECHO "${RUN_TIME} - Core Installation completed"               >> ${LOGFILE}
+$ECHO "=======================================================" >> ${LOGFILE}
+
+exit 0

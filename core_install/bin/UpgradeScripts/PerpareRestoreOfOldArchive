@@ -1,0 +1,117 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Packet Capture Pre-processor Prepare Restore of Old Archive
+#
+# Usage:
+#
+#       ./PrepareRestoreOfOldArchive old_pcp_backup.tar.gz
+#
+#       exit  0 for success
+#       exit  1 for incorrect arguments
+#       exit  2 for a non-existing old PCP Backup
+#       exit  3 for passing the latest PCP Backup as argument
+#
+#       Description:
+#           This script, renames the latest PCP Backup (pcp_backup.tar.gz)
+#           to pcp_backup-<file modification time>.tar.gz.
+#           
+#           Then it renames the supplied backup archive to be
+#           "pcp_backup.tar.gz", in preparation for the BackupRestore.bsh
+#           script to restore the supplied backup archive.
+#
+#
+#               Author:         Luke Potter             elukpot
+#               Date:           02/07/2013
+#
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2013 AB Ericsson Oy  All rights reserved.
+# ----------------------------------------------------------------------
+# Version 1.0
+# ----------------------------------------------------------------------
+# Constants
+STORAGE_DIR=/var/tmp/ericsson_pcp_backup
+ARCHIVE_NAME=pcp_backup.tar.gz
+LATEST_BACKUP_ARCHIVE=$STORAGE_DIR/$ARCHIVE_NAME
+MOVE_LATEST_ARCHIVE=1
+
+# Exit Constants
+SUCCESS=0
+BAD_ARGS=1
+BAD_OLD_ARCHIVE=2
+REPLACING_LATEST_ARCHIVE=3
+
+# ----------------------------------------------------------------------
+# Evaluate the incoming arguments.
+#
+# No need to check for an existing latest pcp_backup.tar.gz, as the user
+# my have deleted the latest backup.
+#
+function checkArgs {
+  
+  # Check number of args.
+  if [ $# != 1 ]; then
+    echo "    [ERROR]   Please supply one argument."
+    echo "              Usage: ./PrepareRestoreOfOldArchive old_pcp_backup.tar.gz"
+    exit $BAD_ARGS
+  fi
+  
+  # Check for older (supplied) tar.gz file
+  if [ ! -f $1 ]; then
+    echo "    [ERROR]   The expected PCP backup file does not exist."
+    echo "              Please supply an existing PCP packup file."
+    exit $BAD_OLD_ARCHIVE
+  fi
+  
+  # Check for latest tar.gz file
+  if [ ! -f $LATEST_BACKUP_ARCHIVE ]; then
+    MOVE_LATEST_ARCHIVE=0
+  fi
+  
+  # Check for passing latest backup file as an argument.
+  if [[ "$1" == "$ARCHIVE_NAME" || "$1" == "$LATEST_BACKUP_ARCHIVE" ]]; then
+    echo "    [ERROR]   Cannot supply latest backup as the argument."
+    echo "              Please supply a corect file e.g. pcp_backup-<timestamp>.tar.gz."
+    exit $REPLACING_LATEST_ARCHIVE
+  fi
+}
+
+# ----------------------------------------------------------------------
+# Check for existing PCP Archives, if it exists, rename it with the
+# timestamp.
+#
+function timestampLatestArchive {
+
+  if [ $MOVE_LATEST_ARCHIVE -eq 1 ]; then
+    echo "    [INFO]    Renaming latest PCP backup file."
+
+    modified_timestamp_of_old_archive=$(stat -c %y $LATEST_BACKUP_ARCHIVE | awk '{print $1"-"$2}')
+    mv -f $LATEST_BACKUP_ARCHIVE $STORAGE_DIR/pcp_backup-$modified_timestamp_of_old_archive.tar.gz
+
+    echo "    [INFO]    Renaming old PCP backup file to \"pcp_backup-$modified_timestamp_of_old_archive.tar.gz\"."
+  else
+    # No need to make this a warning, as the user my have deleted the latest backup.
+    echo "    [INFO]    No latest pcp_backup.tar.gz to rename."
+  fi
+}
+
+# ----------------------------------------------------------------------
+# Rename the Old (supplied) Archive.
+#
+function renameOldArchive {
+  
+  echo "    [INFO]    Renaming $1 to $LATEST_BACKUP_ARCHIVE"
+  mv -f $1 $LATEST_BACKUP_ARCHIVE
+}
+
+# ----------------------------------------------------------------------
+# Stagelist - main part of script.
+#
+checkArgs $@
+echo "    [START]   Starting the process of moving $1 into $LATEST_BACKUP_ARCHIVE"
+
+timestampLatestArchive
+renameOldArchive $1
+
+echo "    [FINISH]  Finisted moving $1 into $LATEST_BACKUP_ARCHIVE"
+
+exit $SUCCESS

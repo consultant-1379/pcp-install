@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>probe_binary</groupId>
+  <artifactId>pcp_core_install</artifactId>
+  <version>1.0.1</version>
+  <name>PCP pcp-install - RPM</name>
+  <description>The PCP Install RPM.
+This RPM controlls the install of the PCP Server</description>
+  <url>http://maven.apache.org</url>
+  <organization>
+  	<name>Ericsson</name>
+  	<url>www.ericsson.com</url>
+  </organization>
+  <build>
+    <plugins>
+
+    <plugin>
+    <artifactId>maven-assembly-plugin</artifactId>
+    <version>2.2-beta-5</version>
+    <configuration>
+       <finalName>pcp_core_install</finalName>
+      <descriptors>
+        <descriptor>assembly.xml</descriptor>
+      </descriptors>
+    </configuration>
+  </plugin>
+    </plugins>
+  </build>
+  <properties>
+  	<copyright>2012 Ericsson AB All rights reserved</copyright>
+  	<url>www.ericsson.com</url>
+  	<vendor>Ericsson</vendor>
+  	<packager>LMI Ericsson</packager>
+  </properties>
+</project>

@@ -1,0 +1,242 @@
+#!/bin/bash
+# ********************************************************************
+# Ericsson Radio Systems AB                                     SCRIPT
+# ********************************************************************
+#
+#
+# (c) Ericsson Radio Systems AB 2012 - All rights reserved.
+#
+# The copyright to the computer program(s) herein is the property
+# of Ericsson Radio Systems AB, Sweden. The programs may be used
+# and/or copied only with the written permission from Ericsson Radio
+# Systems AB or in accordance with the terms and conditions stipulated
+# in the agreement/contract under which the program(s) have been
+# supplied.
+#
+# ********************************************************************
+# Name    : core_install_common_functions.lib
+# Date    : 28/07/2012
+# Revision: A.1
+# Purpose : Main library file holding the core install common functions
+#			for CEP installation
+#
+# Usage   : core_install_common_functions.lib
+#
+# ********************************************************************
+#
+#   Command Section
+#
+# ********************************************************************
+# ********************************************************************
+#
+#   Command Section
+#
+# ********************************************************************
+AWK=/bin/awk
+BASENAME=/bin/basename
+BASH=/bin/bash
+BC=/usr/bin/bc
+CAT=/bin/cat
+CHKCONFIG=/sbin/chkconfig
+CHMOD=/bin/chmod
+CHOWN=/bin/chown
+CLEAR=/usr/bin/clear
+CMP=/usr/bin/cmp
+CP=/bin/cp
+CPIO=/bin/cpio
+DATE=/bin/date
+DIRNAME=/usr/bin/dirname
+DOMAINNAME=/bin/domainname
+ECHO=/bin/echo
+EGREP=/bin/egrep
+EJECT=/usr/sbin/eject
+ENV=/bin/env
+EXPR=/usr/bin/expr
+FIND=/bin/find
+FUSER=/sbin/fuser
+GETENT=/usr/bin/getent
+GETTEXT=/bin/gettext
+GREP=/bin/grep
+GROUPADD=/usr/sbin/groupadd
+GTAR=/bin/gtar
+GZIP=/bin/gzip
+HEAD=/usr/bin/head
+ID=/usr/bin/id
+IP=/sbin/ip
+IFCONFIG=/sbin/ifconfig
+INIT=/sbin/init
+LN=/bin/ln
+LS=/bin/ls
+MKDIR=/bin/mkdir
+MORE=/bin/more
+MOUNT=/bin/mount
+MV=/bin/mv
+MYHOSTNAME=/bin/hostname
+NSLOOKUP=/usr/bin/nslookup
+PASSWD=/usr/bin/passwd
+PGREP=/usr/bin/pgrep
+PING=/bin/ping
+PWD=/bin/pwd
+REBOOT=/sbin/reboot
+RM=/bin/rm
+RPM=/bin/rpm
+SED=/bin/sed
+SERVICE=/sbin/service 
+SLEEP=/bin/sleep
+SORT=/bin/sort
+SU=/bin/su
+SYNC=/bin/sync
+TAIL=/usr/bin/tail
+TAR=/bin/tar
+TEE=/usr/bin/tee
+TOUCH=/bin/touch
+TPUT=/usr/bin/tput
+TR=/usr/bin/tr
+UMOUNT=/bin/umount
+UNAME=/bin/uname
+USERADD=/usr/sbin/useradd
+WC=/usr/bin/wc
+YES=/usr/bin/yes
+# ********************************************************************
+#
+#       Configuration Section
+#
+# ********************************************************************
+# SET THE RUN TIME
+COM_RUN_TIME=`$DATE '+%Y-%b-%d_%H.%M.%S'`
+
+# ********************************************************************
+#
+# 	Functions
+#
+# ********************************************************************
+
+
+# Ensures all functions have the min. required inputs
+#
+# Arguments:
+#   $1 : logfile
+#   $2 : Temp directory
+# Return Values:
+#   0 : Success
+#   1 : Fail
+check_function_dr()
+{
+if [ $# -lt 2 ]; then
+	$ECHO " Arguments: \n "
+	$ECHO "	$1 : logfile \n "
+	$ECHO " $2 : temp dir \n "
+	return 1
+fi
+
+_logfile_=$1
+if [ ! -f $_logfile_ ]; then
+	$ECHO "_logfile_ not set"   
+	return 1
+fi
+
+_temp_dir_=$2
+if [ ! -d $_temp_dir_ ]; then
+	$ECHO "_temp_dir_not set"
+	return 1
+fi
+}
+
+### Function: core_install_build_stage_array ###
+#
+# Build a stage array using the stage file
+#
+# Arguments:
+#   $1 : logfile
+#   $2 : Temp directory
+#   $3 : Eniq type stats, events or cep
+#   $4 : Stage file Location
+# Return Values:
+#   0 : Success
+#   1 : Fail
+core_install_build_stage_array()
+{
+check_function_dr $*
+if [ $? -ne 0 ]; then
+	$ECHO "Could not get the logfile or temp dir" | $TEE -a ${_logfile_}
+	return 1
+fi
+
+if [ ! $3 ]; then
+	$ECHO "ERROR: Eniq type not set, exiting"
+	return 1
+else
+   _eniq_type_=$3
+fi
+
+if [ ! $4 ]; then
+	$ECHO "ERROR: Stage file Location not set, exiting"
+	return 1
+else
+	_stage_file_loc_=$4
+fi
+	
+$ECHO "Determining which stage file to use" | $TEE -a ${_logfile_}
+_stage_file_=${_stage_file_loc_}/etc/${_eniq_type_}_stagelist
+if [ ! -s ${_stage_file_} ]; then
+	$ECHO "Could not find ${_stage_file_} file, or it is empty" | $TEE -a ${_logfile_}
+    return 1
+fi
+$ECHO -e "Building stage list from ${_stage_file_}\n" | $TEE -a ${_logfile_}
+
+# Remove stages that are commented out
+$RM -rf ${_temp_dir_}/stage_list_file
+$CAT ${_stage_file_} | $EGREP -v '^[ 	]*#' | $SED -e 's/ //g' > ${_temp_dir_}/stage_list_file
+if [ $? -ne 0 ]; then
+	$ECHO "Could not remove comments from ${_stage_file_} file" | $TEE -a ${_logfile_}
+    return 1
+fi
+
+_cnt_=0
+while read _line_; do
+	_inst_stage_=`$ECHO ${_line_} | $AWK '{print $1}' | $SED -e 's/ //g'`
+	
+	# Store the details in an array
+    ENIQ_CORE_STAGES[${_cnt_}]=${_inst_stage_}
+    let _cnt_=_cnt_+1
+done < ${_temp_dir_}/stage_list_file
+}
+
+### Function: core_install_check_user_stage ###
+#
+# Check specified stage is valid
+#
+# Arguments:
+#   $1 : logfile
+#   $2 : Temp directory
+#   $3 : User stage
+# Return Values:
+#   0 : Success
+#   1 : Fail
+core_install_check_user_stage()
+{
+check_function_dr $*
+if [ $? -ne 0 ]; then
+	$ECHO "Could not get the logfile or temp dir" | $TEE -a ${_logfile_}
+  return 1
+fi
+if [ ! $3 ]; then
+   $ECHO "ERROR: User stage not set, exiting"
+   return 1
+else
+   _user_stage_=$3
+fi
+	
+if [ "${_user_stage_}" == "cleanup" ]; then
+    return 0
+fi
+
+$ECHO "Checking if user specified stage - ${_user_stage_} - is valid" >> ${_logfile_}
+$ECHO ${ENIQ_CORE_STAGES[*]} | $EGREP -w ${_user_stage_} >> /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    $ECHO "Specified stage ${_user_stage_} not a valid installation stage" | $TEE -a ${_logfile_}
+    return 1
+else
+	$ECHO "Specified stage ${_user_stage_} is a valid installation stage" >> ${_logfile_}
+fi
+}

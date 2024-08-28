@@ -1,0 +1,60 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Ericsson Network IQ Packet Capture Pre Processor
+#
+# Usage:
+#
+#       ./setupAliases.bsh
+#
+#	exit 0 for success
+#
+# 
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2012 AB Ericsson Oy  All rights reserved.
+# ----------------------------------------------------------------------
+# Version 1.0
+# 
+# ----------------------------------------------------------------------
+# This script creates aliases for scripts.
+BASHRC=/root/.bashrc
+
+KILL_LOCATION=/eniq/installation/core_install/bin/PCP_Aliases/killOrphanProcesses.bsh
+KILL="alias PCP_Kill_Orphans='$KILL_LOCATION'"
+
+VERSION_DECIDER=/eniq/installation/core_install/bin/PCP_Aliases/VersionChecker.bsh
+VERSION="alias PCP_Get_Installed_Software='$VERSION_DECIDER'"
+
+PC_CALL='service pcp'
+START="alias PCP_Server_Start='$PC_CALL start'"
+STOP="alias PCP_Server_Stop='$PC_CALL stop'"
+RESTART="alias PCP_Server_Restart='$PC_CALL restart'"
+STATUS="alias PCP_Server_Status='$PC_CALL status'"
+
+# Append to the .bashrc
+echo "    [INFO]   Setting up alias for PCP_Kill_Orphans"
+echo '' >> $BASHRC
+echo '# Alias for killing Orphan Processes' >> $BASHRC
+echo $KILL >> $BASHRC
+
+echo "    [INFO]   Setting up alias for PCP_Get_Installed_Software"
+echo '' >> $BASHRC
+echo '# Alias for getting the versions of the installed PCP RPMs' >> $BASHRC
+echo $VERSION >> $BASHRC
+
+echo ''	>> $BASHRC
+echo '# Aliases for service probe-controller' >> $BASHRC
+echo "    [INFO]   Setting up alias for PCP_Server_Start"
+echo $START >> $BASHRC
+echo "    [INFO]   Setting up alias for PCP_Server_Stop"
+echo $STOP >> $BASHRC
+echo "    [INFO]   Setting up alias for PCP_Server_Restart"
+echo $RESTART >> $BASHRC
+echo "    [INFO]   Setting up alias for PCP_Server_Status"
+echo $STATUS >> $BASHRC
+echo '' >> $BASHRC
+
+# Source the .bashrc
+source $BASHRC
+
+# Exit Success
+exit 0

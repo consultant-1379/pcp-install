@@ -1,0 +1,15 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Ericsson Network IQ Packet Capture Pre Processor Installation Test
+#
+# Text file detailing rpm packages installed. 
+# use rpm -qi <package name>   on the command line to get the package info
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2012 AB Ericsson Oy  All rights reserved.
+# ---------------------------------------------------------------------
+# Version 1.0
+#  
+#  
+#********** Packages ************************
+ERICpcp_capture_card_conf-CXC1734188 1.0.1
+ERICpcp-pect-CXC1735783 1.0.0

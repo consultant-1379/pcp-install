@@ -1,0 +1,14 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Ericsson Network IQ Packet Capture Pre Processor Installation Test
+#
+# Text file detailing tar packages installed. 
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2012 AB Ericsson Oy  All rights reserved.
+# ---------------------------------------------------------------------
+# Version 1.0
+# Version 1.01 Removed the check for /eniq/installation/pcp_core_install.tar.gz 
+#              as it is removed during install procedure at core install stage - cleanup 
+#  
+#********** Packages ************************
+#

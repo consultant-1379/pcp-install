@@ -1,0 +1,411 @@
+#!/bin/bash
+#---------------------------------------------------------------------------------
+# Ericsson Network IQ Packet Capture Pre Processor Napatech Auto Install
+#
+# Usage:
+#
+#       ./conf_capture_card.bsh NAPATECH PACKAGE TCP-DUMP CONFIG_FILE FILTER_FILE STREAM_CONFIG LOGFILE
+#       exit  0 for success
+#       exit  1 for missing kernel-devel rpm
+#       exit  2 for no napatech tarball
+#       exit  3 for napatech drivers tarball not found
+#       exit  4 for napatech drivers .run not found
+#       exit  5 for napatech tools tarball not found
+#       exit  6 for libpcap tarball not found
+#       exit  7 for libpcap install files not found
+#       exit  8 for tcpdump tarball not found
+#       exit  9 for configuration file not found
+#       exit 10 for filter file not found
+#       exit 11 for incorrect args
+#
+#
+#		Author:		Luke Potter		elukpot
+#		Date:		19/10/2012
+#		Updated:	Michael Lawless emilawl
+#		Date:		24/10/2012
+#
+# --------------------------------------------------------------------------------
+# Copyright (c) 1999 - 2012 AB Ericsson Oy  All rights reserved.
+# --------------------------------------------------------------------------------
+# Version 2.0
+#
+#---------------------------------------------------------------------------------
+
+ENIQ_CONF_DIR=/eniq/installation/config
+SYSCONFIG_INI=/sys_config.ini
+
+napatech_install_helper()
+{
+	#---------------------------------------------------------------------------------
+	# Exit constants
+	SUCCESS=0
+	KERNEL_DEVEL_ERROR=1
+	NO_NAPATECH_TARBALL=2
+	DRIVER_VERSION_NOTFOUND=3
+	DRIVER_TAG_VERSION_NOTFOUND=4
+	TOOLS_VERSION_NOTFOUND=5
+	LIBPCAP1_VERSION_NOTFOUND=6
+	LIBPCAP2_VERSION_NOTFOUND=7
+	TCPDump_NOTFOUND=8
+	CUSTOM_CONFIG_NOTFOUND=9
+	FILTER_FILE_NOTFOUND=10
+	INCORRECT_ARGS=11
+
+
+	#---------------------------------------------------------------------------------
+	# Pre-Run Checks
+
+	# Check for Kernel-Devel
+	if [ $(rpm -qa | grep -c kernel-devel) -lt 1 ]
+	then
+		log_to_file "   [ ERROR ]   Kernel-Devel package is not installed."
+		log_to_file "Use yum install kernel-devel to get the latest version of Kernel-Devel."
+		exit $KERNEL_DEVEL_ERROR
+	fi
+
+	# Check number of args
+	if [ $# -ne 6 ]
+	then
+		log_to_file "    [ ERROR ]   Incorrect Args Supplied, please supply correct args."
+		log_to_file "Usage is:               NAPATECH PACKAGE               TCP-DUMP      CONFIG FILE               FILTER FILE             STREAM_CONFIG          LOGFILE"
+		log_to_file "./conf_capture_card.bsh ntcap_package_3gd_linux_12.7.2 /<root dir>/tcpdump-4.1.1 /<root dir>/ntservice.ini /<root dir>/filter.ntpl /<root dir>/ntpcap.ini /<log dir>/logfile"
+		log_to_file "Leave off the .tar.gz from the package names."
+		log_to_file "For no TCP Dump use:"
+		log_to_file "./conf_capture_card.bsh ntcap_package_3gd_linux_12.7.2 -notcpdump /<root dir>/ntservice.ini /<root dir>/filter.ntpl /<root dir>/ntpcap.ini /<log dir>/logfile"
+		exit $INCORRECT_ARGS
+	fi
+
+	# User input values
+	napatechpkg=$1
+	tcpdump=$2
+	customConfig=$3
+	filterfile=$4
+	streamDeff=$5
+	LOGFILE=$6
+
+	contextDir=$(pwd)/
+	NapatechConfig=/opt/napatech3/config/ntservice.ini
+	NapatechStreamDeff=/opt/napatech3/config/ntpcap.ini
+
+	#Check for Napatech Package
+	if [ ! -f $napatechpkg.tar.gz ]
+	then
+		log_to_file "   [ ERROR ]   Napatech Package not found."
+		log_to_file "Please supply the correct location."
+		exit $NO_NAPATECH_TARBALL
+	fi
+
+	# Check for TCP Dump
+	if [ "$tcpdump" != "-notcpdump" ]
+	then
+		if [ ! -f $tcpdump.tar.gz ]
+		then
+			log_to_file "   [ ERROR ]   LibPcap for Napatech not found."
+			log_to_file "Make sure that you specified the correct path to the TCP Dump package."
+			log_to_file "Make sure that you have not provided the .tar.gz at the end of the tcpdump."
+			exit $TCPDump_NOTFOUND
+		fi
+	fi
+
+	# Check for Custom Configuration
+	if [ ! -f $customConfig ]
+	then
+		log_to_file "   [ ERROR ]   Custom Configuration file for Napatech not found."
+		log_to_file "Make sure that you specified the correct path to the Custom Configuration file."
+		exit $CUSTOM_CONFIG_NOTFOUND
+	fi
+
+	# Check for Filter File
+	if [ ! -f $filterfile ]
+	then
+		log_to_file "   [ ERROR ]   Filter file for Napatech not found."
+		log_to_file "Make sure that you specified the correct path to the filter file."
+		exit $FILTER_FILE_NOTFOUND
+	fi
+
+	# Check for ntpcap File
+	if [ ! -f $streamDeff ]
+	then
+		log_to_file "   [ ERROR ]   Filter file for Napatech not found."
+		log_to_file "Make sure that you specified the correct path to the filter file."
+		exit $FILTER_FILE_NOTFOUND
+	fi
+	
+	# Check for log File
+	if [ ! -f $LOGFILE ]
+	then
+		log_to_file "   [ ERROR ]   Filter file for Napatech not found."
+		log_to_file "Make sure that you specified the correct path to the filter file."
+		exit $FILTER_FILE_NOTFOUND
+	fi
+	
+	#---------------------------------------------------------------------------------
+	#
+	log_to_file "    [ START ]   Starting install of Napatech Software."
+
+
+	#---------------------------------------------------------------------------------
+	# Stop PCP server
+	if [ -f /etc/init.d/probe-controller ]
+	then
+		log_to_file "    [ INFO ]    Stopping PCP Server. "
+		service probe-controller stop
+		log_to_file "    [ DONE ]    Stopped PCP Server."
+	fi
+
+
+	#---------------------------------------------------------------------------------
+	# Stop and Unload the NTService, if an existing install exists.
+	if [ -f /opt/napatech3/bin/ntstop.sh ]
+	then
+		log_to_file "    [ INFO ]    Stopping and Unloading Napatech Driver and Service."
+		/opt/napatech3/bin/ntstop.sh
+		/opt/napatech3/bin/ntunload.sh
+		log_to_file "    [ DONE ]    Stopped and Unloaded Napatech Driver and Service."
+	fi
+
+
+	#---------------------------------------------------------------------------------
+	# Install Drivers
+	log_to_file "    [ INFO ]    Starting Napatech Driver Package Installation."
+
+	tar -xzf $napatechpkg.tar.gz -C /opt/ericsson/pcp_capture_card_conf/pcp_capture_card_conf/
+
+	#the napatechpkg contains the full directory path + the package name
+
+	if [ ! -f $napatechpkg/software/nt_driver_3gd_linux*.tar.gz ]
+	then
+		log_to_file "   [ ERROR ]   Drivers for Napatech not found."
+		log_to_file "Make sure that there is a package called nt_driver_3gd_linux_X.Y.Z.tar.gz in the napatech software directory."
+		exit $DRIVER_VERSION_NOTFOUND
+	fi
+
+	tar -xzf $napatechpkg/software/nt_driver_3gd_linux*.tar.gz -C $napatechpkg/software/
+
+	if [ ! -f $napatechpkg/software/nt_driver_3gd_linux*.run ]
+	then
+		log_to_file "   [ ERROR ]   Install file for Napatech Drivers not found."
+		log_to_file "Make sure there is a file called nt_driver_3gd_linux_X.Y.Z.TAG.run in the software directory."
+		exit $DRIVER_TAG_VERSION_NOTFOUND
+	fi
+
+	$napatechpkg/software/nt_driver_3gd_linux*.run
+	
+	
+	verify_command $? "fail to install napatech driver"
+
+	log_to_file "    [ DONE ]    Napatech Driver Package Installed."
+
+
+	#---------------------------------------------------------------------------------
+	# Install Tools
+	log_to_file "    [ INFO ]    Tools Package Installation."
+
+
+	if [ ! -f $napatechpkg/tools/nt_tools_3gd_linux*.tar.gz ]
+	then
+		log_to_file "   [ ERROR ]   Tools for Napatech not found."
+		log_to_file "Make sure that there is a package called nt_tools_3gd_linux_X.Y.Z.tar.gz in the napatech tools directory."
+		exit $TOOLS_VERSION_NOTFOUND
+	fi
+
+	tar -xzf $napatechpkg/tools/nt_tools_3gd_linux*.tar.gz  -C $napatechpkg/tools/
+
+	if [ ! -f $napatechpkg/tools/nt_tools_3gd_linux*.run ]
+	then
+		log_to_file "   [ ERROR ]   Install file for Napatech Tools not found."
+		log_to_file "Make sure there is a file called nt_tools_3gd_linux_X.Y.Z.TAG.run in the tools directory."
+		exit $TOOLS_TAG_VERSION_NOTFOUND
+	fi
+
+	$napatechpkg/tools/nt_tools_3gd_linux*.run
+	
+	verify_command $? "fail to install napatech tools"
+
+	log_to_file "    [ DONE ]    Tools Package Installed."
+
+
+	#---------------------------------------------------------------------------------
+	# Install LibPcap
+	log_to_file "    [ INFO ]    Installing libPCAP."
+
+###	cd ../pcap
+
+	if [ ! -f $napatechpkg/pcap/nt_libpcap*.tar.gz ]
+	then
+		log_to_file "   [ ERROR ]   LibPcap for Napatech not found."
+		log_to_file "Make sure that there is a package called nt_libpcap_X.Y.Z.tar.gz in the napatech pcap directory."
+		exit $LIBPCAP1_VERSION_NOTFOUND
+	fi
+
+	tar -xzf $napatechpkg/pcap/nt_libpcap*.tar.gz -C $napatechpkg/pcap/
+
+	
+	if [ ! -d $napatechpkg/pcap/nt_libpcap_3.8.0/libpcap-1.1.1 ]
+	then
+		log_to_file "    [ ERROR ]   Expected Directory structure for LibPcap not found."
+		log_to_file "Make sure there is the directory structure nt_libpcap_3.8.0/libpcap-1.1.1 in the Napatech Pcap directory."
+		exit $LIBPCAP2_VERSION_NOTFOUND
+	fi
+
+
+	(cd $napatechpkg/pcap/nt_libpcap_3.8.0/libpcap-1.1.1/ ; ./configure --prefix=/opt/napatech3)
+	verify_command $? "[ERROR] fail to compile libpcap"
+	make install --directory=$napatechpkg/pcap/nt_libpcap_3.8.0/libpcap-1.1.1/ -w 
+	verify_command $? "[ERROR] fail to compile libpcap"
+	make install-shared --directory=$napatechpkg/pcap/nt_libpcap_3.8.0/libpcap-1.1.1/ -w
+	verify_command $? "[ERROR] fail to compile libpcap"
+	ldconfig -f /etc/ld.so.conf
+
+	log_to_file "    [ DONE ]    Installed libPCAP."
+	## cd $contextDir
+
+	#---------------------------------------------------------------------------------
+	# Install TCP Dump
+	if [ "$tcpdump" != "-notcpdump" ]
+	then
+		log_to_file "    [ INFO ]    Installing TCPDump."
+
+		tar -xzf $tcpdump.tar.gz -C /opt/ericsson/pcp_capture_card_conf/pcp_capture_card_conf/
+		## $tcpdump/
+
+		autoconf
+		$tcpdump/configure LDFLAGS=-L/opt/napatech3/lib CFLAGS=-I/opt/napatech3/include --prefix=/opt/napatech3
+		make --directory=$tcpdump/ -w
+
+		log_to_file "    [ DONE ]    Installed TCPDump."
+	fi
+
+
+	#---------------------------------------------------------------------------------
+	# Put in Napatech Config
+	log_to_file "    [ INFO ]    Overwriting the default Napatech Config file."
+
+
+	cp $customConfig $NapatechConfig
+
+	log_to_file "    [ DONE ]    Finished overwriting the Napatech Config file."
+
+	#---------------------------------------------------------------------------------
+	# Put in Napatech Stream definition
+	log_to_file "    [ INFO ]    Overwriting the default Napatech ntpcap file (stream definition)."
+
+
+	cp $streamDeff $NapatechStreamDeff
+
+	log_to_file "    [ DONE ]    Finished overwriting the Napatech ntpcap file (stream definition)."
+
+
+	#---------------------------------------------------------------------------------
+	# Load Napatech Driver
+	#log_to_file "    [ INFO ]    Loading the Napatech Driver." Michael Lawless no longer required in v13 of napatech software done by ntstart.sh 
+
+	
+	#---------------------------------------------------------------------------------
+	# Start Napatech Service
+	log_to_file "    [ INFO ]    Starting the Napatech Service."
+
+	/opt/napatech3/bin/ntstart.sh
+	
+	verify_and_print_warning_message $? "[WARNNING] [MANUAL] fail to load & start napatech driver"
+
+	log_to_file "    [ DONE ]    Finished starting the Napatech Service."
+
+
+	#---------------------------------------------------------------------------------
+	# Install Napatech Filter
+	log_to_file "    [ INFO ]    Setting up the fiter you supplied."
+
+	/opt/napatech3/bin/ntpl -f $filterfile
+	
+	
+	verify_and_print_warning_message $? "[WARNNING] [MANUAL] fail to load napatech filter, may require manual step"
+
+	log_to_file "    [ DONE ]    Finished setting up the fiter you supplied."
+
+
+	#---------------------------------------------------------------------------------
+	# Finish Success
+	log_to_file "    [ FINISH ]  Finished Installing the Napatech Software."
+	
+}
+
+
+#---------------------------------------------------------------------------------
+# Function to get the latest version of the directory - used in LibPCAP section
+getLatestDirVer (){
+	latestDIR=$(ls -v $1* | tail -n 1)
+	stringLen=`expr length "$latestDIR"`
+	stringLen=$(($stringLen-1))
+	latestDIR2=`expr substr $latestDIR 1 $stringLen`
+	log_to_file nt_libpcap*/$latestDIR2
+}
+
+
+verify_and_print_warning_message()
+{
+	if [ $1 -eq 0 ];
+	then 
+		log_to_file "OK"
+	else
+		log_to_file $2
+	fi
+
+}
+
+verify_command ()
+{
+	SUCCESS=0
+	KERNEL_DEVEL_ERROR=1
+	NO_NAPATECH_TARBALL=2
+	DRIVER_VERSION_NOTFOUND=3
+	DRIVER_TAG_VERSION_NOTFOUND=4
+	TOOLS_VERSION_NOTFOUND=5
+	LIBPCAP1_VERSION_NOTFOUND=6
+	LIBPCAP2_VERSION_NOTFOUND=7
+	TCPDump_NOTFOUND=8
+	CUSTOM_CONFIG_NOTFOUND=9
+	FILTER_FILE_NOTFOUND=10
+	INCORRECT_ARGS=11
+	GENERIC_ERROR=12
+	if [ $1 -eq 0 ];
+	then 
+		echo ""
+	else
+		log_to_file $2
+		exit $GENERIC_ERROR
+	fi
+}
+
+
+check_existing_and_remove()
+{
+
+
+	if [ -d /opt/napatech3/ ];
+	then 
+		log_to_file "existing napatech driver found"
+		if [ -f /opt/napatech3/bin/ntstop.sh ];
+		then
+			log_to_file "trying to stop napatech service"
+			/opt/nanatech3/bin/ntstop.sh 
+			verify_command $? "fail to stop napatech service"
+		fi
+		log_to_file "removing the napatech directory"
+		rm -rf /opt/napatech3/
+		verify_command $? "fail to remove napatech folder"
+				
+	else
+		log_to_file "napatech drive and tools are not installed"
+	fi
+}
+
+
+
+
+log_to_file () {
+	echo "$1" >> ${LOGFILE}				
+}
+
+
+

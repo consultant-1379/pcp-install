@@ -1,0 +1,41 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Ericsson Network IQ Packet Capture Pre Processor
+#
+# Usage:
+#
+#       ./killOrphanProcesses.bsh
+#
+#	exit 0 for success
+#
+# 
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2012 AB Ericsson Oy  All rights reserved.
+# ----------------------------------------------------------------------
+# Version 1.1
+# ----------------------------------------------------------------------
+
+# This script finds the PCP server's processes and kills them.
+echo "    [START]   Killing pcpuser's processes."
+
+# Create the dump file
+touch processes.dump
+chmod 777 processes.dump
+
+# Get the Processes IDs and put them into the processes file
+echo "    [INFO]    Getting the processes."
+ps -ef | grep pect | grep properties  | awk '{print $2}' > processes.dump
+
+# Kill the processes by reading them in from the processes file
+for pid in `cat processes.dump`
+do
+	echo "    [INFO]    Killing process: $pid"
+	kill -9 $pid
+done
+
+# Delete the process file
+rm -f processes.dump
+
+# Exit Success
+echo "    [FINISH]  Finished Killing pcpuser's processes."
+exit 0

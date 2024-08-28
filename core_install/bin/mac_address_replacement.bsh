@@ -1,0 +1,201 @@
+#!/bin/bash
+# ********************************************************************
+# Ericsson Radio Systems AB                                     SCRIPT
+# ********************************************************************
+#
+#
+# (c) Ericsson Radio Systems AB 2011 - All rights reserved.
+#
+# The copyright to the computer program(s) herein is the property
+# of Ericsson Radio Systems AB, Sweden. The programs may be used
+# and/or copied only with the written permission from Ericsson Radio
+# Systems AB or in accordance with the terms and conditions stipulated
+# in the agreement/contract under which the program(s) have been
+# supplied.
+#
+# ********************************************************************
+# Name    : mac_address_replacement.bsh
+# Date    : 29/08/2013
+# Revision: R1A01
+# Purpose : 
+# usage   : ./mac_address_replacement.bsh <name of the install ini> <location of the probe config files> <capture card configuration location> <the location of the installation configuration> <The location of the installation> <A file containing a list of comma separated list of MAC Adresses> <the full path and name of the logfile>
+#
+# ********************************************************************
+
+source ../lib/common_functions.lib
+
+EXIT_NORMAL=0;
+EXIT_FAILED=1;
+
+SYSCONFIG_INI=$1
+configuration_file_location=$2
+_working_dir=$3
+ENIQ_CONF_DIR=$4
+ENIQ_CORE_INST_DIR=$5
+MAC_LIST=$6
+LOGFILE=$7
+
+PROPERTIES_XML=$configuration_file_location/properties.xml
+
+# ----------------------------------------------------------------------
+# Utility printing functions.
+function logMessage {
+  
+  echo $@  | tee -a ${LOGFILE}
+}
+function echoError {
+  
+  echo "    [ERROR]   $@"
+}
+
+# ----------------------------------------------------------------------
+# A function for evaluating the agruments passed to the script.
+function evaluateArguments {
+  
+  # Number of args are correct
+  if [ $# -ne 7 ]; then
+      echoError "Incorrect Args Supplied, please supply correct args."
+      logMessage "Usage is:      <name of the install ini> <location of the probe config files> <capture card configuration location> <the location of the installation configuration> <The location of the installation> <A file containing a list of comma separated list of MAC Adresses> <the full path and name of the logfile>"
+      exit $EXIT_FAILED
+  fi
+  
+  # Files exist
+  if [ ! -f $ENIQ_CONF_DIR/$SYSCONFIG_INI ]; then
+    echoError "The sysconfig.ini file does not exist. Please supply the correct file."
+    exit $EXIT_FAILED
+  fi
+  if [ ! -f $LOGFILE ]; then
+    echoError "The file for logging messages does not exist. Please supply the correct file."
+    exit $EXIT_FAILED
+  fi
+  if [ ! -f $PROPERTIES_XML ]; then
+    echoError "The Pect properties.xml file does not exist. Please supply the correct file."
+    exit $EXIT_FAILED
+  fi
+  if [ ! -f $MAC_LIST ]; then
+    echoError "The file containing the list of MAC addresses does not exist. Please supply the correct file."
+    exit $EXIT_FAILED
+  fi
+  
+  # Directories exist
+  if [ ! -d $configuration_file_location ]; then
+    echoError "The Pect configutation directory does not exist. Please supply the correct directory."
+    exit $EXIT_FAILED
+  fi
+  if [ ! -d $ENIQ_CONF_DIR ]; then
+    echoError "The ENIQ configutarion directory does not exist. Please supply the correct directory."
+    exit $EXIT_FAILED
+  fi
+  if [ ! -d $ENIQ_CORE_INST_DIR ]; then
+    echoError "The ENIQ core install directory does not exist. Please supply the correct directory."
+    exit $EXIT_FAILED
+  fi
+}
+
+# ----------------------------------------------------------------------
+# A function to determine the MAC addresses automatically.
+#
+# NOTE: This function is not 100% bulletproof in it's detection of the
+# required MAC addresses so it has been commented out of the stagelist
+# below.
+function determineMacAdresses {
+  
+  # Use TCP Dump to see the interfaces.
+  logMessage "Current active interfaces are:"
+  tcpdump -D | tee -a ${LOGFILE}
+
+  logMessage "Processing capture for MAC addresses of the GGSN"
+  SLEEP_TIME=15
+  full_mac_list="mac_list_full.txt"
+  
+  if [ -f $full_mac_list ]; then
+	rm -f $full_mac_list
+  fi
+  # Remove the MAC List file, inorder to use the one that this function creates.
+  if [ -f $MAC_LIST ]; then
+	rm -f $MAC_LIST
+  fi
+  
+  # Capture the streams going into the ports.
+  for stream in {1..9}; do
+    eval "tcpdump -i nt3g$stream -w nt3g$stream.pcap -c 100000&"
+    sleep $SLEEP_TIME
+    kill -9 $(ps -ef | grep tcpdum[p] | awk '{print $2}')
+  done
+  
+	# Copy the destination and source MAC addresses for upstream and downstream traffic.
+	# gtp byte value is in hex; 0x12 update_context_request [SGSN] to [GGSN] ; 0x13 update_context_response [GGSN] to [SGSN];
+	tshark -r nt3g1.pcap "udp.dstport==2123 and gtp[1]==12" -Tfields -e eth.dst >> $full_mac_list
+	tshark -r nt3g1.pcap "udp.srcport==2123 and gtp[1]==13" -Tfields -e eth.src >> $full_mac_list
+	for stream in {2..9}; do tshark -r nt3g$stream.pcap "udp.dstport==2152 and tcp.dstport==80" -Tfields -e eth.dst >> $full_mac_list; done
+	for stream in {2..9}; do tshark -r nt3g$stream.pcap "udp.srcport==2152 and tcp.srcport==80" -Tfields -e eth.src >> $full_mac_list; done
+
+  # Get the unique MAC addresses
+  sort -u $full_mac_list > $MAC_LIST
+  
+  # Check if we have MAC addresses
+  if [ $(cat $MAC_LIST | wc -l) -eq 0 ]; then
+    echoError "Failed to collect the required GGSN mac addresses."
+    exit $EXIT_FAILED
+  fi
+
+  # Clean up the files created.
+  rm -f nt3g*.pcap $full_mac_list
+}
+
+# ----------------------------------------------------------------------
+# This function updates the list of MAC addresses in the properties.xml.
+function updateMacList {
+  
+  logMessage "Creating comma separated list of GGSN addresses."
+  cat $MAC_LIST | awk -vORS=, '{ print$1 }'| sed 's/,$/\n/' > mac_list_comma.txt	
+  _list_of_macs_comma_separated_=$(cat mac_list_comma.txt)
+
+  filter_type=`iniget NAPATECH_FILTERS -f ${ENIQ_CONF_DIR}/${SYSCONFIG_INI} -v filter_type`
+
+  if [ ! "${filter_type}" ]; then
+    echoError "Could not get the filter type from ${ENIQ_CONF_DIR}/${SYSCONFIG_INI}"
+    exit $EXIT_FAILED
+  fi
+
+  logMessage "Creating a backup of the config.xml."
+  cp $PROPERTIES_XML $PROPERTIES_XML.bk 
+
+  logMessage "Updating the config.xml with the GGSN MAC addresses."
+  sed 's/%%MAC_ADDRESS_LIST%%/'$_list_of_macs_comma_separated_'/' <$PROPERTIES_XML.bk > $PROPERTIES_XML.mac
+}
+
+# ----------------------------------------------------------------------
+# This function updates the list of sources in the properties.xml.
+function updateSourceList {
+  
+  _nt20='1_nt20e'
+  _2nt20='2_nt20e'
+  _nt20nt4='2_nt20e_1_nt4e'
+  _nt4='1_nt4e'
+
+  logMessage "Updating the source list"
+  sed 's/%%SOURCE_LIST%%/nt3g2,nt3g3,nt3g4,nt3g5,nt3g6,nt3g7,nt3g8,nt3g9/' <$PROPERTIES_XML.mac > $PROPERTIES_XML
+  if [ $? -ne 0 ]; then
+    if [ $filter_type == $_nt20 ]; then
+      echoError "Failed to replace the source list for a single NT20"
+    elif [ $filter_type == $_2nt20 ]; then
+      echoError "Failed to replace the source list for two NT20"
+    elif [ $filter_type == $_nt20nt4 ]; then
+      echoError "Failed to replace the source list for two NT20s and single NT4"
+    elif [ $filter_type == $_nt4 ]; then
+      echoError "Failed to replace the source list for a single NT4"
+    fi
+    
+    exit $EXIT_FAILED
+  fi
+}
+
+# ----------------------------------------------------------------------
+# Stagelist
+evaluateArguments $@
+# determineMacAdresses # Not 100% accurate.
+updateMacList
+updateSourceList
+
+exit $EXIT_NORMAL

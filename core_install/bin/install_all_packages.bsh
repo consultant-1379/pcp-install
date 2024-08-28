@@ -1,0 +1,69 @@
+#!/bin/bash
+# ********************************************************************
+# Ericsson Radio Systems AB                                     SCRIPT
+# ********************************************************************
+#
+#
+# (c) Ericsson Radio Systems AB 2011 - All rights reserved.
+#
+# The copyright to the computer program(s) herein is the property
+# of Ericsson Radio Systems AB, Sweden. The programs may be used
+# and/or copied only with the written permission from Ericsson Radio
+# Systems AB or in accordance with the terms and conditions stipulated
+# in the agreement/contract under which the program(s) have been
+# supplied.
+#
+# ********************************************************************
+# Name    : install_all_packages.bsh
+# Date    : 15/10/2012
+# Revision: R1A01
+# Purpose : When run this will install any packages in a given location 
+#			and listed in packages.list
+#
+# usage   : install_all_packages.bsh <packages.list file directory> <packages directory> <Log file to be used> 
+#
+# ********************************************************************
+
+
+
+PACKAGES_LIST_LOCATION=$1 
+PACKAGES_DIRECTORY=$2
+LOGFILE=$3
+
+
+
+echo "[INFO]	This script should be run as root" >> ${LOGFILE}
+echo "[INFO]	Installing packages listed in packages.list at " `date '+%Y-%b-%d_%H.%M.%S'` >> ${LOGFILE}
+
+#read in the names of the packages listed in the packages.list file line by line
+while read line 
+	do
+		echo  >> ${LOGFILE}
+		if [ `ls ${PACKAGES_DIRECTORY} | grep "$line" | wc -l` -eq 0 ]; then
+			#Failed to find rpm in given directory let yum look for it in yum repos
+			echo "##############################################################################" >> ${LOGFILE}
+			echo "##	[ INFO ]	Installing $line " >> ${LOGFILE}
+			echo "##    [ INFO ]	Installing from redhat repository " >> ${LOGFILE}
+			echo "">> ${LOGFILE}
+			echo "" >> ${LOGFILE}
+			
+			yum install $line --assumeyes >> ${LOGFILE} 2 >> ${LOGFILE}
+			
+			echo "##############################################################################" >> ${LOGFILE}
+
+		else
+			#use yum to install the local package
+			echo "##############################################################################" >> ${LOGFILE}
+			echo "##	[ INFO ]	Installing `ls ${PACKAGES_DIRECTORY} | grep "$line"` " >> ${LOGFILE}
+			echo "##	[ INFO ]	Installing from cached pacakages " >> ${LOGFILE}
+			echo "">> ${LOGFILE}
+			echo "" >> ${LOGFILE}
+			
+			yum install $PACKAGES_DIRECTORY/`ls ${PACKAGES_DIRECTORY} | grep "$line"` --assumeyes >> ${LOGFILE} 2 >> ${LOGFILE}
+			
+			echo "###############################################################################" >> ${LOGFILE}
+		fi
+
+		echo  >> ${LOGFILE}
+done < $PACKAGES_LIST_LOCATION/packages.list
+

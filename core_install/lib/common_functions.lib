@@ -1,0 +1,1221 @@
+# ********************************************************************
+# Ericsson Radio Systems AB                                     SCRIPT
+# ********************************************************************
+#
+#
+# (c) Ericsson Radio Systems AB 2012 - All rights reserved.
+#
+# The copyright to the computer program(s) herein is the property
+# of Ericsson Radio Systems AB, Sweden. The programs may be used 
+# and/or copied only with the written permission from Ericsson Radio 
+# Systems AB or in accordance with the terms and conditions stipulated 
+# in the agreement/contract under which the program(s) have been 
+# supplied.
+#
+# ********************************************************************
+# Name    : common_functions
+# Date    : 11/06/2012
+# Revision: H.2
+# Purpose : This file contails a set of functions that can be sourced from the bash
+#           shell. 
+#           NOTE : THESE FUNCTIONS ARE FOR ENIQ INSTALLATION ONLY AND THEREFORE IF 
+#                  THEY NEED TO BE CHANGED ONLY THE ENIQ INSTALLATION SCRIPTS WILL
+#                  BE CONSIDERED.
+#
+# Usage   : common_functions
+#
+# ********************************************************************
+#
+# 	Command Section
+#
+# ********************************************************************
+AWK=/bin/awk
+BASENAME=/bin/basename
+BASH=/bin/bash
+BC=/usr/bin/bc
+CAT=/bin/cat
+CHMOD=/bin/chmod
+CHOWN=/bin/chown
+CLEAR=/usr/bin/clear
+CMP=/usr/bin/cmp
+CP=/bin/cp
+CPIO=/bin/cpio
+DATE=/bin/date
+DIRNAME=/usr/bin/dirname
+DOMAINNAME=/bin/domainname
+ECHO=/bin/echo
+EGREP=/bin/egrep
+EJECT=/usr/sbin/eject
+ENV=/bin/env
+EXPR=/usr/bin/expr
+FIND=/bin/find
+FUSER=/sbin/fuser
+GETENT=/usr/bin/getent
+GETTEXT=/bin/gettext
+GREP=/bin/grep
+GROUPADD=/usr/sbin/groupadd
+GTAR=/bin/gtar
+GZIP=/bin/gzip
+HEAD=/usr/bin/head
+ID=/usr/bin/id
+IFCONFIG=/sbin/ifconfig
+INIT=/sbin/init
+LN=/bin/ln
+LS=/bin/ls
+MKDIR=/bin/mkdir
+MORE=/bin/more
+MOUNT=/bin/mount
+MV=/bin/mv
+MYHOSTNAME=/bin/hostname
+NSLOOKUP=/usr/bin/nslookup
+PGREP=/usr/bin/pgrep
+PING=/bin/ping
+PWD=/bin/pwd
+REBOOT=/sbin/reboot
+RM=/bin/rm
+RPM=/bin/rpm
+SED=/bin/sed
+SERVICE=/sbin/service 
+SLEEP=/bin/sleep
+SORT=/bin/sort
+SU=/bin/su
+SYNC=/bin/sync
+TAIL=/usr/bin/tail
+TAR=/bin/tar
+TEE=/usr/bin/tee
+TOUCH=/bin/touch
+TPUT=/usr/bin/tput
+TR=/usr/bin/tr
+UMOUNT=/bin/umount
+UNAME=/bin/uname
+USERADD=/usr/sbin/useradd
+WC=/usr/bin/wc
+YES=/usr/bin/yes
+
+# ********************************************************************
+#
+#       Configuration Section
+#
+# ********************************************************************
+# SET THE RUN TIME
+COM_RUN_TIME=`$DATE '+%Y-%b-%d_%H.%M.%S'`
+
+# ********************************************************************
+#
+# 	functions
+#
+# ********************************************************************
+
+### Function: change_stor_perms ###
+#
+# This function will change permissions 
+# of files in storage dir
+#
+# Arguments:
+#	$1 : SunOS.ini file
+#	$2 : Logfile
+# Return Values:
+#       0 : Success
+#       1 : Error
+change_stor_perms()
+{
+_sunos_ini_=$1
+_logfile_=$2
+
+_err_flag_=0
+	
+_nas_sw_target_dir_=`iniget NAS_STORAGE_API -f ${_sunos_ini_} -v NAS_API_TARGET_DIR`
+if [ ! "${_nas_sw_target_dir_}" ]; then
+	_err_flag_=1
+fi
+	
+# Make a log directory
+$ECHO "\nCreating ${_nas_sw_target_dir_}/log" | $TEE -a ${_logfile_}
+$MKDIR -p ${_nas_sw_target_dir_}/log
+if [ $? -ne 0 ]; then
+    _err_flag_=1
+fi
+
+$ECHO "\nChanging permissions in ${_nas_sw_target_dir_} to -rwxrwxr-x" | $TEE -a ${_logfile_}
+$FIND ${_nas_sw_target_dir_} -type d -exec $CHMOD 775 {} \;
+if [ $? -ne 0 ]; then
+    _err_flag_=1
+fi
+
+$ECHO "\nChanging ownership of ${_nas_sw_target_dir_} to root:root" | $TEE -a ${_logfile_}
+$FIND ${_nas_sw_target_dir_} -type d -exec $CHOWN root:root {} \;
+if [ $? -ne 0 ]; then
+    _err_flag_=1
+fi
+
+$ECHO "\nChanging permissions of ${_nas_sw_target_dir_}/log to -rwxrwxrwx" | $TEE -a ${_logfile_}
+$CHMOD 777 ${_nas_sw_target_dir_}/log
+if [ $? -ne 0 ]; then
+    _err_flag_=1
+fi
+
+if [ ${_err_flag_} -eq 0 ]; then
+    return 0
+else
+    return 1
+fi
+}
+
+### Function: check_full_pathname ###
+#
+# Checks whether $1 contains a full pathname
+#
+# Arguments:
+#	$1 : Filename	
+# Return Values:
+#       0 : Success
+#       1 : Error
+check_full_pathname() 
+{
+_file_=`$ECHO $1|$SED 's/\/[\/]*/\//g'|$SED 's/[\/]*$//g'`
+_check_=`$ECHO $_file_|$EGREP '^[/]'`
+if [ ! "$_check_" ]; then
+    return 1
+fi
+return 0
+}
+
+### Function: ejectdvd ###
+#
+# Eject DVD from Derive if any present
+#
+# Arguments:
+#	none
+# Return Values:
+#	none
+ejectdvd() 
+{
+$FUSER -ck /cdrom/cdrom0 >/dev/null 2>&1
+$EJECT cdrom >/dev/null 2>&1
+$EJECT cdrom1 >/dev/null 2>&1
+$UMOUNT /cdrom/cdrom0 >/dev/null 2>&1
+$UMOUNT /cdrom/cdrom1 >/dev/null 2>&1
+$RM -rf /cdrom/cdrom*
+}
+
+### Function: check_nasd_milestone_online ###
+#
+# Check that NASD milestone is online
+#
+# Arguments:
+#  	$1 : Template Dir
+#	$2 : SunOs.ini
+#	$3 : Eniq Base Dir 
+# Return Values:
+#       0 : Success
+#       1 : Error
+check_nasd_milestone_online()
+{
+_template_dir_=$1
+_sunos_ini_=$2
+_eniq_base_dir_=$3
+
+_nas_smf_str_=`iniget NAS_DAEMON -f ${_template_dir_}/${_sunos_ini_} -v NAS_SERVICE_STR`
+if [ ! "${_nas_smf_str_}" ]; then
+    log_msg error "Could not read NASd service string from ${_template_dir_}/${_sunos_ini_}"
+    exit 1
+fi
+
+$SVCS -a | $GREP "${_nas_smf_str_}" >> /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    log_msg info "Enabling ${_nas_smf_str_}. Please wait..."
+    $SVCADM enable -rs ${_nas_smf_str_}
+    if [ $? -ne 0 ]; then
+	log_msg error "Could not start ${_nas_smf_str_}"
+        exit 1
+    fi
+
+    NAS_online_FMRI=`iniget NAS_DAEMON -f ${_template_dir_}/${_sunos_ini_} -v NAS_MILESTONE_FMRI`
+    if [ ! "${NAS_online_FMRI}" ]; then
+		log_msg error "Could not read NAS milestone FMRI from ${_template_dir_}/${_sunos_ini_}"
+		exit 1
+    fi
+    
+    if [ -s ${_eniq_base_dir_}/smf/nasd/nasd_config ]; then
+		_service_state_=`$SVCS -a | $EGREP "${NAS_online_FMRI}" | $AWK '{print $1}'`
+		log_msg info "Please wait while the NAS milestone comes online...\n"
+		while [ "${_service_state_}" != "online" ]; do
+		    $SLEEP 2
+		    _service_state_=`$SVCS -a | $EGREP "${NAS_online_FMRI}" | $AWK '{print $1}'`
+		done
+    fi
+fi
+}
+
+### Function: check_update_boot_archive ###
+#
+# Update the boot archive
+#
+# Arguments:
+#   none
+# Return Values:
+#       0 : Success
+#       1 : Error
+check_update_boot_archive()
+{
+if [ -x $BOOTADM ]; then
+    $BOOTADM update-archive >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+       log_msg error "Could not update boot kernel archive.....Exiting"
+       exit 1
+    fi
+fi
+}
+
+### Function: get_network_addr ###
+#
+# Get the network address of the client
+#
+# Arguments:
+#   $1 : Client Netmask
+#   $2 : Client IP
+# Return Values:
+#      : Network Address
+get_network_addr()
+{
+local _chk_=0 _tmp_ip_ _net_ip_
+local nm1 nm2 nm3 nm4
+local sno1 sno2 sno3 sno4
+local snf1 snf2 snf3 snf4 
+
+# split out the parts of the netmask
+nm1=`$EXPR $1 : '\([0-9]*\)\..*'`
+nm2=`$EXPR $1 : '[0-9]*\.\([0-9]*\)\..*'`
+nm3=`$EXPR $1 : '[0-9]*\.[0-9]*\.\([0-9]*\)\..*'`
+nm4=`$EXPR $1 : '[0-9]*\.[0-9]*\.[0-9]*\.\([0-9]*\)'`
+
+# split out the parts of the server ip address
+sno1=`$EXPR $2 : '\([0-9]*\)\..*'`
+sno2=`$EXPR $2 : '[0-9]*\.\([0-9]*\)\..*'`
+sno3=`$EXPR $2 : '[0-9]*\.[0-9]*\.\([0-9]*\)\..*'`
+sno4=`$EXPR $2 : '[0-9]*\.[0-9]*\.[0-9]*\.\([0-9]*\)'`
+
+# AND the ipaddress and the netmask
+snf1=`$ECHO "0t${sno1}&0t${nm1}=d" | $ADB /dev/null /dev/null`
+snf2=`$ECHO "0t${sno2}&0t${nm2}=d" | $ADB /dev/null /dev/null`
+snf3=`$ECHO "0t${sno3}&0t${nm3}=d" | $ADB /dev/null /dev/null`
+snf4=`$ECHO "0t${sno4}&0t${nm4}=d" | $ADB /dev/null /dev/null`
+
+_tmp_ip_="${snf1}.${snf2}.${snf3}.${snf4}"
+_net_ip_=`$ECHO ${_tmp_ip_} | sed 's/ //g'`
+
+$ECHO ${_net_ip_}
+
+}
+
+### Function: get_running_services ###
+#
+# Get the eniq services that are not offiline/disabled
+#
+# Arguments:
+#  None
+# Return Values:
+#      : CSV eniq services
+get_running_services()
+{
+svccmd=`$SVCS -a | $GREP eniq | $EGREP -v  "offline|disabled" | $AWK -F'/'  '{print $3}' | $AWK -F':' '{print $1}'`
+
+# Create CSV service list
+_svc_list_=`$ECHO $svccmd | $SED 's/ /,/g'`
+
+$ECHO $_svc_list_
+}
+
+### Function: iniget ###
+#
+# Read specified parts from a given ini file
+#
+# Arguments:
+#       -f  : specified ini file
+#	-p  : gives whole matching <line>
+#	-v  : gives only value of matching <line>
+#       raw : will print even commented (;) lines
+# Return Values:
+#       0 : Success
+#       1 : Error
+#	Text output
+iniget() 
+{
+if [ -n "$1" ]; then
+    INIBLOCK="$1"
+    shift 1
+else
+    $ECHO "Usage: iniget <block> -f <configfile> [-<p|v> <line>] [raw]"
+    return 1
+fi
+
+unset INIWLINE INILINE INICONFIGFILE INIPRINTTYPE
+while [ -n "$1" ]; do
+    case $1 in
+	-p)	INIWLINE=parameter
+		INILINE=$2
+		shift 2
+		;;
+	-v)	INIWLINE=value
+		INILINE=$2
+		shift 2
+		;;
+	-f)	INICONFIGFILE=$2
+		shift 2
+		;;
+	raw)	INIPRINTTYPE=raw
+		shift 1
+		;;
+	*)	return 1
+		;;
+    esac
+done
+
+if [ -z "$INICONFIGFILE" ]; then
+    $ECHO "Usage: iniget <block> -f <configfile> [-<p|v> <line>] [raw]"
+    return 1
+fi
+
+$AWK -F= -v printtype=$INIPRINTTYPE -v line="$INILINE" -v way=$INIWLINE '
+  { sub(/[	 ]*$/,"");	#remove trailing whitespace and tabs
+    if ($1=="['$INIBLOCK']") {
+	while ((getline) > 0) {
+		if ($0 ~ /^ *\[/) exit
+		if (($0 ~ /^ *;/) && (printtype!="raw")) continue
+		if ($1==line) {
+			if (way=="parameter") {print $0; exit}
+			if (way=="value")     {sub(/^[^=]*=/,""); print $0; exit}
+		}
+		else if (! line) print $0
+	}
+    }
+  }' $INICONFIGFILE
+}
+
+### Function: iniset ###
+#
+# Set specified parts from a given ini file
+#
+# Arguments:
+#	-p  : gives whole matching <line>
+#	-v  : gives only value of matching <line>
+#       -f  : defaults to /ericsson/config/system.ini
+#       raw : will print even commented (;) lines
+# Return Values:
+#       0 : Success
+#       1 : Error
+#	
+# iniset <block> [-f <configfile>] [del] <text>
+#
+iniset() 
+{
+if [ -n "$1" ]; then
+    INIBLOCK="$1"
+    shift 1
+else
+    $ECHO "Usage: iniset <block> [-f <configfile>] [del] <param1=value> [<param2=value2>]"
+    return 1
+fi
+
+unset INICONFIGFILE ini_del
+$RM -f /tmp/.file.$$
+while [ -n "$1" ]; do
+    case $1 in
+	-f)	INICONFIGFILE="$2"
+		shift 2
+		;;
+	del)	ini_del=y
+		shift 1
+		;;
+	*)	echo "$1" >> /tmp/.file.$$ 
+		shift 1
+		;;
+    esac
+done
+if [ -z "$INICONFIGFILE" ]; then
+    $ECHO "Usage: iniset <block> [-f <configfile>] [del] <param1=value> [<param2=value2>]"
+    return 1
+fi
+
+# Permission-keeping copy
+$CP -p $INICONFIGFILE $INICONFIGFILE.$$ || return 1
+$ECHO "" > $INICONFIGFILE.$$ || return 1
+
+$AWK -F= -v del=$ini_del -v textfile=/tmp/.file.$$ '
+  BEGIN {
+	while((getline < textfile) > 0) {
+	foo=$1
+	sub(/^[^=]*=/,"")
+	line[foo]=$0
+	}
+  }
+  {	sub(/[	 ]*$/,"");	#remove trailing whitespace and tabs
+	if (($1=="['$INIBLOCK']") && (edited=="done")) {
+		print "ERROR: Multiple instances of ['$INIBLOCK'] found, exiting" > "/dev/stderr"
+		exit 1
+	}
+	if ($1=="['$INIBLOCK']") { found="y"; print $0; next }
+	if (! found) { print $0; next }
+	if ($0 ~ /^ *\[/) {
+		# End of block, flush all remaining entries
+		for (entry in line) { print entry "=" line[entry] }
+		found=""; edited="done"; print $0; next
+	}
+	if (! del) {
+		for (entry in line) {
+			if (entry==$1) { print entry "=" line[entry]; delete line[entry]; next }
+		}
+		print $0
+	}
+  }
+  END {
+	if (found=="y") {
+		# End of file, flush all remaining entries
+		for (entry in line) { print entry "=" line[entry] }
+	}
+	else if (edited!="done") {
+		# Create new block, flush all entries
+		print; print "['$INIBLOCK']"
+		for (entry in line) { print entry "=" line[entry] }
+	}
+
+  }' $INICONFIGFILE > $INICONFIGFILE.$$
+  [ $? = 0 ] && mv $INICONFIGFILE.$$ $INICONFIGFILE || return 1
+  rm -f /tmp/.file.$$
+}
+
+### Function: insert_media ###
+#
+# Mounts the require DVD/Directory and returns the path 
+# in variable SW_DIR.
+#
+# Arguments:
+#	-a) : File to be appended to returned SW_DIR/CDDIR PATH (Optional) 
+#	-f) : File underneath that directory 
+#	-l) : DVD label 
+#	-n) : Number of tries before giving up (optional)
+#	-s) : Path of the SW location file (optional)
+# Return Values:
+#       0 : Success
+#       1 : Error
+#	$SW_DIR : Variable containing path to required data
+insert_media() 
+{
+unset APPEND_PATH FILE_IDENT LABEL_IDENT NAME_IDENT NUM_TRIES SW_LOC_FILE
+while [ -n "$1" ]; do
+    case $1 in
+	-a)	APPEND_PATH="$2"
+		shift 2
+		;;
+	-f)	FILE_IDENT="$2"
+		shift 2
+		;;
+	-l)	LABEL_IDENT="$2"
+		shift 2
+		;;
+	-n)	NUM_TRIES="$2"
+		shift 2
+		;;
+	-s)	SW_LOC_FILE="$2"
+		shift 2
+		;;
+	*)	NAME_IDENT="$*"
+		shift $#
+		;;
+    esac
+done
+
+if [ ! "${LABEL_IDENT}" -o ! "${FILE_IDENT}"  ]; then
+    log_msg error "<- insert_media usage error"
+    return 1
+fi
+
+if [ "${SW_LOC_FILE}" ]; then
+	if [ ! -s ${SW_LOC_FILE} ]; then
+		log_msg error "${SW_LOC_FILE} is empty"
+		return 1
+	fi
+fi
+
+if [ "${SW_LOC_FILE}" ]; then
+    INSTALL_SERVER=`$CAT ${SW_LOC_FILE} |  $AWK -F\@ '{print $1}'`
+    $PING $INSTALL_SERVER 3 >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+		log_msg error "$INSTALL_SERVER does not seem to be alive"
+		return 1
+    fi
+
+    _share_dir_=`$CAT ${SW_LOC_FILE} | $AWK -F\@ '{print $2}'|$SED -e 's/\/[\/]*/\//g' -e 's/\/$//'`
+    if [ ! "${_share_dir_}" ]; then
+		log_msg error "Corrupt entry in ${SW_LOC_FILE}"
+		return 1
+    fi
+
+    # Loop until I get a unique name for the temp dir
+    _tem_dir_=/tmp/_mp_pt_.$$
+    while :; do
+		$LS ${_tem_dir_} >> /dev/null 2>&1
+		if [ $? -ne 0 ]; then
+		    break
+		fi
+		_tem_dir_=${_tem_dir_}.$$
+    done
+
+    # Set error flag
+    _err_=0
+
+    # Check that machine is sharing out its file systems.
+    $DFSHARES $INSTALL_SERVER >> /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+		$MKDIR -p  ${_tem_dir_}
+		if [ $? -ne 0 ];then
+		    log_msg error "Could not make temporary directory ${tem_dir}"
+		    return 1
+		fi
+
+        # Strip off any duplicate or trailing '/'
+		_mount_path_=`$CAT ${SW_LOC_FILE}|$SED -e 's|@|:|' -e 's/\/[\/]*/\//g' -e 's/\/$//'`
+	
+	    # Try to mount our share up
+		$MOUNT -F nfs -o retry=2 ${_mount_path_} ${_tem_dir_} >> /dev/null 2>&1
+		if [ $? -ne 0 ]; then
+		    _err_=1
+		fi
+    else
+		_err_=1
+    fi
+
+    # Not sharing out correctly
+    if [ ${_err_} -ne 0 ]; then
+		log_msg error "$INSTALL_SERVER does not seem to be sharing any filesystem\n${_share_dir_}"
+		return 1
+    fi
+
+    # Umount the directory
+    $UMOUNT ${_tem_dir_} >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+		$UMOUNT -f ${_tem_dir_} >> /dev/null 2>&1
+    fi
+fi
+
+_dvd_dir_label_=`$ECHO ${LABEL_IDENT}|$TR "[:upper:]" "[:lower:]"`
+_chk_dir_="/cdrom/${_dvd_dir_label_}"
+
+# Update jumpdir if using alternate jumpstart structure, due to CR??.
+if [ "${SW_LOC_FILE}" ]; then
+    jumpdir=`$CAT ${SW_LOC_FILE} | $AWK -F\@ '{print $2}' |$SED 's/\/$//'`
+else
+    jumpdir=/jumpstart
+fi
+
+log_msg info "-> Looking for $NAME_IDENT"
+
+_cnt_=0
+# Loop until we find the DVD/Directory we are looking for
+while :; do
+    if [ "$NUM_TRIES" ]; then
+		if [ $_cnt_ -ge $NUM_TRIES ]; then
+	        unset SW_DIR
+		    return 1
+		else
+		    _cnt_=`expr $_cnt_ + 1`
+		fi
+    fi
+
+    # Is there a DVD inserted
+    _dvd_inserted_=""
+    $VOLCHECK -v |$EGREP '^no' >> /dev/null 2>&1 
+    if [ $? -ne 0 ]; then
+		_dvd_inserted_=yes
+        $SLEEP 5
+    fi
+
+    unset SW_DIR DVD_USED
+
+    # Already inserted CDROM/DVD
+    if [ "$_dvd_inserted_" ]; then
+        # Perform checks
+        if [ -d $_chk_dir_ ]; then
+            if [ -f $_chk_dir_/$FILE_IDENT ]; then
+				SW_DIR=${_chk_dir_}/${APPEND_PATH}
+				DVD_USED=1
+	        	break
+			fi
+		fi
+	fi
+
+    # Jumpstart server
+    if [ "$INSTALL_SERVER" ]; then
+		if [ -d /net/$INSTALL_SERVER/${jumpdir}/${LABEL_IDENT} ]; then
+		    if [ -f /net/$INSTALL_SERVER/${jumpdir}/${LABEL_IDENT}/$FILE_IDENT ]; then
+				SW_DIR="/net/$INSTALL_SERVER/${jumpdir}/${LABEL_IDENT}/${APPEND_PATH}"
+		        break
+		    fi
+	
+		    SW_DIR="/net/$INSTALL_SERVER/${jumpdir}/${LABEL_IDENT}/${APPEND_PATH}"
+		    break
+		fi
+    fi
+	
+    # Nothing found, eject any present DVD and ask for Required DVD
+    ejectdvd
+    $SLEEP 5
+    log_msg info "\n<- Please insert the $NAME_IDENT now.\nThe installation will proceed when the DVD is detected."
+    while :; do
+		$VOLCHECK -v |$EGREP '^no' >> /dev/null 2>&1 
+		if [ $? -ne 0 ]; then
+		    break
+		fi
+        sleep 3
+    done
+done
+log_msg info "<- $NAME_IDENT found, using $SW_DIR"
+
+# Remove trailing/leading spaces and any uneeded '/'
+SW_DIR=`$ECHO ${SW_DIR}|$SED -e 's/^[ ]*//' -e 's/[ ]*$//' -e 's/\/[\/]*/\//g' -e 's/[\/]*$//g'`
+
+CDDIR=${SW_DIR}
+export CDDIR SW_DIR DVD_USED
+}
+
+### Function: insert_roll_snap_crontab ###
+#
+# Inserts the rolling snapshot entry into the root 
+# crontab
+#
+# Arguments:
+#	$1 : File containing root crontab entry
+# Return Values:
+#       0 : Success
+#       1 : Error
+insert_roll_snap_crontab() 
+{
+local cron_entry_file=${1}
+local _logfile_=/tmp/logfile.txt
+local cron_cmds
+
+if [ ! -s ${cron_entry_file} ];then
+    $ECHO "${cron_entry_file} not found or empty"
+    return 1
+fi
+
+# Loop until I get a unique name for the temp dir
+tem_dir=/tmp/update_cron.$$
+while :; do
+    $LS ${tem_dir} >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+		break
+    fi
+    tem_dir=${tem_dir}.$$
+done
+
+$MKDIR -p  ${tem_dir}
+if [ $? -ne 0 ];then
+    $ECHO "Could not make temporary directory ${tem_dir}" | $TEE -a ${_logfile_}
+    return 1
+fi
+	
+local tem_file=${tem_dir}/roll_cron.$$
+local tem_file1=${tem_dir}/roll_cron1.$$
+local tem_file2=${tem_dir}/roll_cron2.$$
+local tem_file3=${tem_dir}/roll_cron3.$$
+
+$CRONTAB -l > ${tem_file}
+$CAT ${cron_entry_file} | $GEGREP -v '^[[:blank:]]*#' > ${tem_file1}
+
+cron_cmds=`$CAT ${cron_entry_file} | $GEGREP -v '^[[:blank:]]*#' | $AWK '{print $6}'`
+for _cmd_ in ${cron_cmds}; do
+    $CAT ${tem_file} | $EGREP "[ 	]+${_cmd_}[ 	]+" >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+		_cmdline_=`$CAT ${tem_file1} | $AWK -v cvar="${_cmd_}" '{if($6 == cvar)print $0}'`
+		$ECHO "Updating crontab with ${_cmdline_}" | $TEE -a ${_logfile_}
+		$ECHO "${_cmdline_}" >> ${tem_file2}
+    fi
+done
+
+if [ ! -s ${tem_file2} ];then
+    $ECHO "No crontab entries needed to be added"  | $TEE -a ${_logfile_}
+    $RM -rf ${tem_dir}
+    return 0
+fi
+
+# Make a backup of root crontab
+if [ -s /var/spool/cron/crontabs/root ]; then
+    $CP /var/spool/cron/crontabs/root ${tem_dir}/root.crontab
+fi
+
+$CAT ${tem_file2} >> ${tem_file}
+
+# Sort the crontab entries
+$CAT ${tem_file} | $SORT -u > ${tem_file3}
+
+${CRONTAB} ${tem_file3}
+if [ $? -ne 0 ]; then
+    if [ -s ${tem_dir}/root.crontab ]; then
+    	$CP ${tem_dir}/root.crontab /var/spool/cron/crontabs/root 
+    fi
+    $ECHO "Error updating crontab"  | $TEE -a ${_logfile_}
+    $RM -rf ${tem_dir}
+    return 1
+fi
+
+$RM -rf ${tem_dir}
+
+return 0
+}
+
+### Function: log_msg ###
+#
+# I will create the function log if one does not already exist
+# This allows user to have his/her own log function and still 
+# work with the commmon functions
+#
+# Arguments:
+#       -l) : File to be logged to
+#       -q) : don't echo the text just tee it
+#       -s) : Text/message to be logged
+# Return Values:
+#       0 : Success
+#       1 : Error
+log_msg()
+{
+local logfile quiet outstr
+
+while [ -n "$1" ]; do
+    case $1 in
+	-l)	logfile=$2
+		shift 2
+		;;
+	-q)	quiet=-q
+		shift 1
+		;;
+	-s)	outstr=$2
+		shift 2
+		;;
+	*)	return 1
+		;;
+    esac
+done
+
+if [ ! "${outstr}" ]; then
+    return 1
+fi
+
+if [ "${logfile}" ]; then
+    if [ ! "${quiet}" ]; then
+    	$ECHO "${outstr}" |$TEE -a ${logfile}
+    else
+    	$ECHO "${outstr}" >> ${logfile}
+    fi
+else
+    if [ ! "${quiet}" ]; then
+    	$ECHO "${outstr}"
+    fi
+fi
+}
+
+### Function: rotate_compress_logs ###
+#
+# Rotate and compress the logs if necessary.
+#
+# Arguments:
+#       $1 - Logfile
+#       $2 - Num Logs to keep. This number is addition to the original log
+#       $3 - Size Log in Kbytes (0 means size not relevant. Rotation always occurs)
+#       $4 - Param to compress log or not (y/n)
+# Return Values:
+#       0 : Rotation sucessful
+# 	1 : Error
+rotate_compress_logs()
+{
+local logfile=${1}
+local numlog=${2}
+local sizelog_kbytes=${3}
+local compress_log=${4}
+local _chk_size_ run_time num_exist_log
+
+if [ ! "${logfile}" -o ! "${numlog}" -o ! "${sizelog_kbytes}" -o ! "${compress_log}" ]; then
+    $ECHO "Incorrect Parameters supplied to function rotate_compress_logs"
+    return 1
+fi
+
+if [ ! -s ${logfile} ]; then
+    return 0
+fi
+
+# Test for numeric
+$ECHO ${numlog} | $EGREP '[^0-9]' >> /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    $ECHO "Numeric value only for param 2 in function rotate_compress_logs"
+    return 1
+fi
+
+# Test for numeric
+$ECHO ${sizelog_kbytes} | $EGREP '[^0-9]' >> /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    $ECHO "Numeric value only for param 3 in function rotate_compress_logs"
+    return 1
+fi
+
+# Param must be either y/n
+if [ "${compress_log}" != "y" -a "${compress_log}" != "n" ]; then 
+    $ECHO "Param 4 can only have (y/n) value in function rotate_compress_logs"
+    return 1
+fi
+
+# Is the logfile big enough to need rotation
+if [ ${sizelog_kbytes} -ne 0 ]; then
+    _chk_size_=`$LS -l ${logfile}|$AWK '{print $5}'`
+    if [ ${_chk_size_} -lt ${sizelog_kbytes} ]; then
+	return 0
+    fi
+fi
+
+tem_file=/tmp/temfile.$$
+# Loop until I get a file name that does not exist
+while :; do
+    $LS ${tem_file} >> /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+	break
+    fi
+    tem_file=${tem_file}.$$
+done
+$RM -f  ${tem_file}	
+
+$LS ${logfile}_#*@* 2> /dev/null \
+            |$EGREP "${logfile}_#[1-9]+[0-9]*@[0-9]+-[0-9]+-[0-9]+.[0-9]+.[0-9]+.[0-9]+" \
+            |$SORT -t \# -k 2,2n > ${tem_file}
+num_exist_log=`$CAT ${tem_file}|$WC -l`
+if [ `$EXPR ${num_exist_log} + 1` -ge ${numlog} ]; then
+    _cnt_=0
+    for _file_ in `$CAT ${tem_file}`; do
+    	_cnt_=`$EXPR ${_cnt_} +  1`
+	if [ ${_cnt_} -ge ${numlog} ]; then
+	    $RM -f ${_file_}
+	fi
+    done
+fi
+
+$LS ${logfile}_#*@* 2> /dev/null \
+            |$EGREP "${logfile}_#[1-9]+[0-9]*@[0-9]+-[0-9]+-[0-9]+.[0-9]+.[0-9]+.[0-9]+" \
+            |$SORT -t \# -k 2,2nr > ${tem_file}
+
+# Rotate the dumps
+for _file_ in `$CAT ${tem_file}`; do
+    _file_num_=`$ECHO ${_file_}|$AWK -F\# '{print $2}'|$AWK -F\@ '{print $1}'`
+    _new_file_num_=`$EXPR ${_file_num_} + 1`
+    _new_file_name_=`$ECHO ${_file_}|$SED -e "s|#${_file_num_}@|#${_new_file_num_}@|"`
+    $MV -f ${_file_} ${_new_file_name_}
+done
+$RM -f  ${tem_file}	
+
+local run_time=`$DATE '+%Y-%m-%d_%H.%M.%S'`
+$MV ${logfile} ${logfile}_#1@${run_time}
+if [ "${compress_log}" = "y" ]; then 
+    $COMPRESS -f ${logfile}_#1@${run_time} 2>/dev/null &
+fi
+
+}
+
+### Function: update_engine_java_heap_size ###
+#
+# This function will set the Heap Memory size 
+# of the ENIQ engine.
+#
+# Arguments:
+#	$1 : INI file to be updated
+#	$2 : Heap size factor (optional)
+# Return Values:
+#       0 : Success
+#       1 : Error
+update_engine_java_heap_size()
+{
+	local _ini_file_=$1
+if [ ! -s ${_ini_file_} ]; then
+    log_msg error "${_ini_file_} does not exist, or is empty"
+    exit 1
+fi
+
+	if [ -z $2 ] ; then
+		if [ "${INSTALL_TYPE}" == "events" ]; then
+			local _heap_factor_=24
+		else
+			if [ "${CURR_SERVER_TYPE}" == "stats_engine" ]; then
+				local _heap_factor_=2
+			else
+				local _heap_factor_=18
+			fi
+		fi
+	else
+		local _heap_factor_=$2
+	fi
+
+	local _total_mem_=`$PRTCONF 2>/dev/null | $HEAD -3 | $EGREP '^Memory size'|$AWK '{print $3}'`
+if [ ! ${_total_mem_} ]; then
+    log_msg error "${_total_mem_} could not be found"
+    exit 1
+fi
+
+if [ ${_total_mem_} -lt 16384 ]; then
+		local _engine_heap_size_=1024M
+else
+		local _size_=`$EXPR ${_total_mem_} / ${_heap_factor_} + 1024`
+		local _engine_heap_size_="${_size_}M"
+fi
+
+	if [ -f ${ENIQ_CONF_DIR}/extra_params/verbose_settings ] ; then
+		while :; do
+			$ECHO
+			$ECHO "Enter ETLC Engine Max Heap (defaults to $_engine_heap_size_)"
+			read _read_
+			if [ -z $_read_ ] ; then
+				_read_=$_engine_heap_size_
+			fi
+			
+			_setting_=`$ECHO "$_read_" | $TR '[A-Z]' '[a-z]'`
+			_num_=`$ECHO $_setting_ | $AWK '{print substr($1, 0, length($1)-1)}'`
+			_factor_=`$ECHO $_setting_ | $AWK '{print substr($1, length($1), length($1))}'`
+
+			_kilo_=1024
+			_mega_=$((${_kilo_} * ${_kilo_}))
+			_giga_=$((${_mega_} * ${_kilo_}))
+			_tera_=$((${_giga_} * ${_kilo_}))
+
+			_mul_=1
+
+			if [ "$_factor_" == "k" ] ; then
+				_mul_=${_kilo_}
+			elif [ "$_factor_" == "m" ] ; then
+				_mul_=${_mega_}
+			elif  [ "$_factor_" == "g" ] ; then
+				_mul_=${_giga_}
+			elif  [ "$_factor_" == "t" ] ; then
+				_mul_=${_tera_}
+			else
+				log_msg error "Unknown size factor '$_factor_' in $_setting_"
+				continue
+			fi
+			_engine_heap_size_bytes_=$(($_num_ * $_mul_))
+			_total_mem_bytes_=$(($_total_mem_ * ${_mega_}))
+			
+			if [ $_engine_heap_size_bytes_ -gt $_total_mem_bytes_ ] ; then
+				log_msg error "Max heap value can not be greator that available memory : $_read_ > ${_total_mem_}M"
+				continue
+			fi
+			_engine_heap_size_=$_read_
+			break
+		done
+	fi
+iniset ETLC -f ${_ini_file_} EngineHeap=${_engine_heap_size_}
+if [ $? -ne 0 ]; then
+    log_msg error "Could not update ${_ini_file_} with EngineHeap=${_engine_heap_size_}"
+    exit 1
+fi
+	export ENGINE_MAX_HEAP=${_engine_heap_size_}
+}
+
+### Function: update_iq_intf_file ###
+#
+# Update the SYBASE IQ interfaces file
+#
+# Arguments:
+#       $1 : iq interface file
+#	$2 : ini file
+# 	$3 : Name of the reader 
+# Return Values:
+#       0 : Success
+#       1 : Error
+update_iq_intf_file()
+{
+_iq_intf_file_=$1
+_dwh_ini_file_=$2
+_reader_name_=$3
+
+if [ ! "${_iq_intf_file_}" -o ! "${_dwh_ini_file_}" -o ! "${_reader_name_}" ]; then
+	log_msg error "Incorrect arguments passed to update_iq_intf_file function"
+    exit 1
+fi
+
+if [ ! -s ${_iq_intf_file_} ]; then
+    log_msg error "Could not locate Sybase IQ interfaces file - ${_iq_intf_file_}"
+    exit 1
+fi
+
+_temp_intf_file_=/tmp/interface_file.$$.$$
+$RM -rf ${_temp_intf_file_}
+
+# Make a temp version of the interfaces dir
+$CP ${_iq_intf_file_} ${_temp_intf_file_}
+if [ $? -ne 0 ]; then
+    log_msg error "Could not create a backup of ${_iq_intf_file_}"
+    exit 1
+fi
+
+_dwh_port_num_=`iniget DWH_READER_SETTINGS -f ${_dwh_ini_file_} -v PortNumber`
+if [ ! "${_dwh_port_num_}" ]; then
+    log_msg error "Could not read DWH port number from ${_dwh_ini_file_}"
+    exit 1
+fi
+
+$ECHO "${_reader_name_}" >> ${_temp_intf_file_}
+$ECHO "\tmaster tcp ether ${_reader_name_} ${_dwh_port_num_}" >> ${_temp_intf_file_}
+$ECHO "\tquery tcp ether ${_reader_name_} ${_dwh_port_num_}\n" >> ${_temp_intf_file_}
+
+$CP ${_temp_intf_file_} ${_iq_intf_file_}
+if [ $? -ne 0 ]; then
+    log_msg error "Could not copy Sybase IQ Interfaces File to ${_iq_intf_file_}"
+    exit 1
+fi
+}
+
+### Function: update_service_file ###
+#
+# This function will update the service names
+# file with the required service
+#
+# Arguments:
+#	$1 : Service name file (Mandatory)
+#	$2 : Hostname of server (Mandatory)
+#	$2 : IP address of server (Mandatory)
+#	$3 : Service name running (Mandatory)
+#	$5 : Service Group Name (Optional)
+# Return Values:
+#       0 : Success
+#       1 : Error
+update_service_file()
+{
+local _service_file_=$1
+local _host_ip_=$2
+local _hostname_=$3
+local _service_name_list_=$4
+local _service_grp_=${5}
+local _out_str_
+
+if [ ! "${_host_ip_}" -o ! "${_hostname_}" -o ! "${_service_name_list_}" -o ! "${_service_file_}" ]; then
+	log_msg error "Incorrect arguments passed to update_service_file function"
+    exit 1
+fi
+	
+validate_ip ${_host_ip_}
+if [ $? -ne 0 ]; then
+    log_msg error "Could not validate ${_host_ip_}"
+    exit 1
+fi
+
+_temp_service_file_=/tmp/service_file.$$.$$
+_temp_service_file_1_=/tmp/service_file_1.$$.$$
+
+$RM -rf ${_temp_service_file_} ${_temp_service_file_1_}
+
+$ECHO "#\n# ENIQ service list" > ${_temp_service_file_1_}
+$ECHO "# Format is:\n# <ip_address>::<hostname>::<service>::<service_group>\n#" >> ${_temp_service_file_1_}
+
+_upd_service_name_regex_=`$ECHO ${_service_name_list_} | $SED -e 's/^[ ]*//' -e 's/[ ]*$//' -e 's|\,|\||g'`
+if [ -s ${_service_file_} ]; then
+      	$CAT ${_service_file_} | $GEGREP -v "^[[:blank:]]*#" | $GEGREP -v ".*::(${_upd_service_name_regex_})[::]*[[:blank:]]*$" >> ${_temp_service_file_}
+		# Removing the check for return values due to ENIQ Stats Standalone : - DDP-254
+		if [ -s ${_temp_service_file_} ]; then
+			$CAT ${_temp_service_file_} | $GEGREP '${_upd_service_name_regex_}'
+			if [ $? -eq 0 ]; then
+				log_msg error "Could not remove ${_service_name_list_} entries"
+				return 1
+			fi
+		fi
+fi
+
+_upd_service_name_list_=`$ECHO ${_service_name_list_} | $SED -e 's/^[ ]*//' -e 's/[ ]*$//' -e 's|\,| |g'`
+for _service_name_ in ${_upd_service_name_list_}; do
+	_out_str_="${_host_ip_}::${_hostname_}::${_service_name_}"
+    if [ "${_service_grp_}" != "NULL_GRP" ]; then
+	    _out_str_="${_out_str_}::${_service_grp_}"
+	fi
+
+	$ECHO "${_out_str_}" >> ${_temp_service_file_}
+	if [ $? -ne 0 ]; then
+	    log_msg error "Could not update ${_temp_service_file_} with ${_out_str_}"
+	    return 1
+	fi
+done
+
+$CAT ${_temp_service_file_} | $SORT -u >> ${_temp_service_file_1_}
+if [ $? -ne 0 ]; then
+    log_msg error "Could not remove duplicates from ${_temp_service_file_}"
+    return 1
+fi
+
+$CP ${_temp_service_file_1_} ${_service_file_}
+if [ $? -ne 0 ]; then
+    log_msg error "Could not create new file ${_service_file_}"
+    return 1
+fi
+
+$SVCS -a | $GREP "svc:/application/management/hostsync" >> /dev/null 2>&1
+if [ $? -eq 0 ]; then
+	log_msg info "Restarting svc:/application/management/hostsync"
+	$SVCADM restart svc:/application/management/hostsync
+	if [ $? -ne 0 ]; then
+	    log_msg error "Could not restart svc:/application/management/hostsync"
+	    exit 1
+	fi
+fi
+
+log_msg info "Waiting for svc:/application/management/hostsync to restart"
+$SLEEP 30
+}
+
+### Function: validate_ip ###
+#
+# This function will check that an
+# IP address is valid
+#
+# Arguments:
+#	$1 : IP address to be validated
+# Return Values:
+#       0 : Success
+#       1 : Error
+validate_ip()
+{
+_chk_ip_=$1	
+_err_flag_=0
+
+if [[ ${_chk_ip_} =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    _orig_ifs_="$IFS"
+    IFS='.'
+    
+    _chk_ip_array_=($_chk_ip_)
+    IFS="${_orig_ifs_}"
+    
+    _array_length_="${#_chk_ip_array_[@]}"
+    if [ ${_array_length_} -ne 4 ]; then
+    	_err_flag_=1
+    fi
+    
+    for (( i=0; i<${_array_length_}; i++ )); do
+    	if [ ${_chk_ip_array_[$i]} -lt 0 -o ${_chk_ip_array_[$i]} -gt 255 ]; then
+    		_err_flag_=1
+    	fi
+    done
+else
+        local ipv6=$1
+
+        # The Regex expresion to match IPv6 adresses
+        IPv6_REGEXP='^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$'
+
+        if [[ "$ipv6" =~ $IPv6_REGEXP ]] ; then
+                # Valid IPv6 address
+                echo "ipv6"
+        else
+            # not valid IPv6 address
+            echo "not_valid"
+            _err_flag_=1
+        fi
+
+        
+fi
+
+if [ ${_err_flag_} -eq 0 ]; then
+    return 0
+else
+    return 1
+fi
+}

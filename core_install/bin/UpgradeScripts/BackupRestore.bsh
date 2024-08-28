@@ -1,0 +1,682 @@
+#!/bin/bash
+# ----------------------------------------------------------------------
+# Packet Capture Pre-processor Backup and Restore Script
+#
+# Usage:
+#
+#       ./BackupRestore.bsh [-b [-keeptemp]] | [-r [-mergeconfig][-restoreNapatechConfig] [-overwritegtpccache]]
+#       -b to set the script to Back-up.
+#       -r to set the script to Restore.
+#       -keeptemp to not delete the temporary directories.
+#       -mergeconfig to perform a 3-way merge on the previous, previous original and new config files.
+#       -restoreNapatechConfig to overwrite the existing Napatech config during restore.
+#       -overwritegtpccache to overwrite the current GTP-C cache with the restored one.
+#
+#       exit  0 for success
+#       exit  1 for incorrect arguments
+#       exit  2 for a non-existing PCP Server Output directory
+#       exit  3 for a non-existing Restore point
+#       exit  4 for a non-existing Restore TAR Ball
+#       exit  5 for non-existing Capture Card files
+#       exit  6 for error with the permissions around the GTP-C cache
+#       exit  7 for non-existing properties.xml.original or log_config.xml.original
+#
+#       Description:
+#           This script, with '-b', backs up the following;
+#               * properties.xml,
+#               * properties.xml.original,
+#               * log_config.xml,
+#               * log_config.xml.original,
+#               * gtpc.cache-001.bk,
+#               * Pect output directory,
+#               * Captool output directory,
+#               * Staple output directory,
+#               * Napatech properties.
+#           Into a TAR ball, i.e. a Restore point.
+#           This script deletes the contents of the temporary
+#           directories, unless the '-keeptemp' flag is passed in after
+#           the '-b' flag.
+#           The script also checks for existing Restore point and
+#           renames it with it's file modification timestamp.
+#
+#           This script, with '-r', restores the contents of the TAR
+#           ball to their correct locations.
+#           Before the restore, it checks for an existing properties
+#           file and renames it, in-order to preserve it's contents.
+#           Before the restore, this script checks for existing capture
+#           card configutation files, and renames them, in order to
+#           preserve their contents.
+#
+#
+#               Author:         Luke Potter             elukpot
+#               Date:           17/07/2013
+#
+# ----------------------------------------------------------------------
+# Copyright (c) 1999 - 2013 AB Ericsson Oy  All rights reserved.
+# ----------------------------------------------------------------------
+# Version 3.6
+# ----------------------------------------------------------------------
+# Constants
+STORAGE_DIR=/var/tmp/ericsson_pcp_backup/
+BACKUP_ARCHIVE=$STORAGE_DIR/pcp_backup.tar.gz
+
+# Exit Constants
+SUCCESS=0
+BAD_ARGS=1
+BAD_OUTPUT_DIR=2
+NO_STORAGE_DIR=3
+NO_STORAGE_TARBALL=4
+NO_CAPTURE_CARD_FILES=5
+NO_GTPC_CACHE_PERMISSIONS=6
+NO_ORIGINAL_FILES=7
+
+# Files to back-up.
+# Output directories.
+Base_Dir=/var/opt/ericsson/pcp
+
+Pect_Output_Dir=$Base_Dir/output/pect/
+Pect_Intermediate_Dir=$Base_Dir/temp/pect/
+
+Staple_Output_Dir=$Base_Dir/output/staple/
+Staple_Intermediate_Dir=$Base_Dir/temp/staple/
+
+Captool_Output_Dir=$Base_Dir/output/captool/
+Captool_Intermediate_Dir=$Base_Dir/temp/captool/
+
+# PCP-Pect files.
+Pect_Install_Dir=/opt/ericsson/pcp/pect/pect
+PROPERTIES=$Pect_Install_Dir/properties.xml
+PROPERTIES_ORIGINAL=$Pect_Install_Dir/properties.xml.original
+PROPERTIES_BACKUP=${PROPERTIES}.backup-restore-save
+LOG_CONFIG=$Pect_Install_Dir/log_config.xml
+LOG_CONFIG_ORIGINAL=$Pect_Install_Dir/log_config.xml.original
+LOG_CONFIG_BACKUP=${LOG_CONFIG}.backup-restore-save
+GTPC_CACHE_DIR=/var/opt/ericsson/pcp/cache
+GTPC_CACHE=$GTPC_CACHE_DIR/gtpc.cache-001
+GTPC_CACHE_BK=${GTPC_CACHE}.bk
+
+# Capture Card files.
+CaptureCard_Bin_Dir=/opt/napatech3/bin
+CaptureCard_Conf_Dir=/opt/napatech3/config
+NtPcap=$CaptureCard_Conf_Dir/ntpcap.ini
+NtService=$CaptureCard_Conf_Dir/ntservice.ini
+filter_type=$(cat /eniq/installation/config/sys_config.ini | grep filter_type | awk -F '=' '{print $2}')
+CC_Filters_Dir=/opt/ericsson/pcp_capture_card_conf/pcp_capture_card_conf/$(cat /eniq/installation/config/sys_config.ini | grep filter_type | awk -F '=' '{print $2}')
+FilterFileName=hash_by_ip-6.ntpl
+
+# ----------------------------------------------------------------------
+# Print the Error Message got incorrect arguments.
+#
+function printArgsErrorMessage {
+  
+  echo "    [ERROR]   Usage: BackupRestore.bsh [-b [-keeptemp]] | [-r [-mergeconfig][-restoreNapatechConfig] [-overwritegtpccache]]"
+  echo "              Please use correct arguments;"
+  echo "              Options:"
+  echo "                -b                      Back up files"
+  echo "                -keeptemp               Back up files without removing temporary directories"
+  echo "                -r                      Restore a previous backup"
+  echo "                -mergeconfig            When restoring a backup, attempt a 3-way merge on PECT configuration files"
+  echo "                -restoreNapatechConfig  When restoring a backup, restore the previous Napatech configuration"
+  echo "                -overwritegtpccache     When restoring a backup, to overwrite the current GTP-C cache."
+
+  exit $BAD_ARGS
+}
+
+# ----------------------------------------------------------------------
+# Check if the files and directories exist
+#
+# A function that checks that the specified files exist, exits if they
+# don't exist.
+# Function also creates Restore locations if they don't exist.
+function backupCheck {
+
+  echo "    [INFO]    Checking Back-up Locations exist."
+
+  # Pect Files to be backed up
+  if [ ! -d $Pect_Output_Dir ]
+  then
+    echo "    [ERROR]   Supplied PCP Server PECT output directory does not exist."
+    exit $BAD_OUTPUT_DIR
+  fi
+  
+  # Staple Files to be backed up
+  if [ ! -d $Staple_Output_Dir ]
+  then
+    echo "    [ERROR]   Supplied PCP Server STAPLE output directory does not exist."
+    exit $BAD_OUTPUT_DIR
+  fi
+  
+  # Captool Files to be backed up
+  if [ ! -d $Captool_Output_Dir ]
+  then
+    echo "    [ERROR]   Supplied PCP Server CAPTOOL output directory does not exist."
+    exit $BAD_OUTPUT_DIR
+  fi
+  
+  # Capture Card ntpcap to be backed up
+  if [ ! -f $NtPcap ]
+  then
+    echo "    [ERROR]   Capture Card's ntpcap file does not exist."
+    exit $NO_CAPTURE_CARD_FILES
+  fi
+  
+  # Capture Card ntservice to be backed up
+  if [ ! -f $NtService ]
+  then
+    echo "    [ERROR]   Capture Card's ntservice file does not exist."
+    exit $NO_CAPTURE_CARD_FILES
+  fi
+  
+  # PCP-Pect log_config.xml.original to be backed up
+  if [ ! -f $LOG_CONFIG_ORIGINAL ]
+  then
+    echo "    [ERROR]   PCP-Pect log_config.xml.original file does not exist."
+    exit $NO_ORIGINAL_FILES
+  fi
+  
+  # PCP-Pect properties.xml.original to be backed up
+  if [ ! -f $PROPERTIES_ORIGINAL ]
+  then
+    echo "    [ERROR]   PCP-Pect properties.xml.original file does not exist."
+    exit $NO_ORIGINAL_FILES
+  fi
+  
+  # Capture Card filters to be backed up
+  if [ ! -f $CC_Filters_Dir/$FilterFileName ]
+  then
+    echo "    [ERROR]   Capture Card Filter file ($CC_Filters_Dir/$FilterFileName) does not exist."
+    exit $NO_CAPTURE_CARD_FILES
+  fi
+  
+  # Check if there's an existing GTP-C cache.
+  if [ ! -f $GTPC_CACHE ]; then
+    # Silently don't back it up if it doesn't exist.
+    GTPC_CACHE_BK=""
+  else
+    # Copy it to a .bk file, we'll backup the the .bk file.
+    cp $GTPC_CACHE $GTPC_CACHE_BK
+    
+    # Check if the copy was a success.
+    if [ $? -ne $SUCCESS ]; then
+      # Fail here, as we don't have permissions to backup the cache.
+      echo "    [ERROR]   No permissions to access GTP-C cache and it's directory."
+      exit $NO_GTPC_CACHE_PERMISSIONS
+    fi
+  fi
+
+  # Check Back-up Locations
+  if [ ! -d $STORAGE_DIR ]
+  then
+    mkdir -p $STORAGE_DIR
+  fi
+
+  echo "    [DONE]    Back-up Locations exist."
+}
+
+# ----------------------------------------------------------------------
+# A function to change the output directory permissions on output and intermediate.
+function changeDirectoryPermissionsForPcpuser {
+  chown pcpuser:dc5000 $1
+  chmod 744 $1
+}
+
+# ----------------------------------------------------------------------
+# Check if the Restore TAR ball exists
+#
+# A function that checks that the Restore Locations exist, exits if they
+# don't exist.
+# Function also creates the Back-up locations if they don't exist.
+function restoreCheck {
+
+  echo "    [INFO]    Checking Restore Locations exist."
+
+  # Check Back-up Locations
+  if [ ! -d $STORAGE_DIR ]
+  then
+    echo "    [ERROR]   Restore location does not exist."
+    exit $NO_STORAGE_DIR
+  fi
+  
+  if [ ! -f $BACKUP_ARCHIVE ]
+  then
+    echo "    [ERROR]   Restore TAR Ball does not exist."
+    exit $NO_STORAGE_TARBALL
+  fi
+  
+  # Check Pect Install Restore Location
+  if [ ! -d $Pect_Install_Dir ]
+  then
+    mkdir -p $Pect_Install_Dir
+    changeOutputDirectoryPermissions $Pect_Install_Dir
+  fi
+
+  # Check Pect Restore Locations
+  if [ ! -d $Pect_Output_Dir ]
+  then
+    mkdir -p $Pect_Output_Dir
+    changeOutputDirectoryPermissions $Pect_Output_Dir
+  fi
+
+  # Check Captool Restore Locations
+  if [ ! -d $Captool_Output_Dir ]
+  then
+    mkdir -p $Captool_Output_Dir
+    changeOutputDirectoryPermissions $Captool_Output_Dir
+  fi
+  
+  # Check Staple Restore Locations
+  if [ ! -d $Staple_Output_Dir ]
+  then
+    mkdir -p $Staple_Output_Dir
+    changeOutputDirectoryPermissions $Staple_Output_Dir
+  fi
+  
+  # Check Capture Card Restore Locations
+  if [ ! -d $Napatech_Conf_Dir ]
+  then
+    mkdir -p $Napatech_Conf_Dir
+    changeOutputDirectoryPermissions $Napatech_Conf_Dir
+  fi
+  
+  # Check that the Capture Card RPM restore location
+  if [ ! -d $CC_Filters_Dir ]
+  then
+    mkdir -p $CC_Filters_Dir
+    changeOutputDirectoryPermissions $CC_Filters_Dir
+  fi
+
+  echo "    [DONE]    Restore Locations exist."
+}
+
+# ----------------------------------------------------------------------
+# Wipe the contents of the temp (intermediate) directories
+#
+function wipeIntermediateDirs {
+  
+  if [ -d $Pect_Intermediate_Dir ]
+  then
+    echo "    [INFO]    Deleting the PECT temp directory's contents."
+    rm -Rf $Pect_Intermediate_Dir/*
+  fi
+  
+  if [ -d $Captool_Intermediate_Dir ]
+  then
+    echo "    [INFO]    Deleting the CAPTOOL temp directory's contents."
+    rm -Rf $Captool_Intermediate_Dir/*
+  fi
+  
+  if [ -d $Staple_Intermediate_Dir ]
+  then
+    echo "    [INFO]    Deleting the STAPLE temp directory's contents."
+    rm -Rf $Staple_Intermediate_Dir/*
+  fi
+}
+
+# ----------------------------------------------------------------------
+# Check for existing PCP Archives, if it exists, rename it with the
+# timestamp.
+#
+function timestampExistingArchive {
+  
+  echo "    [INFO]    Renaming old PCP backup file."
+  
+  modified_timestamp_of_old_archive=$(stat -c %y $BACKUP_ARCHIVE | awk '{print $1"-"$2}')
+  mv -f $BACKUP_ARCHIVE $STORAGE_DIR/pcp_backup-$modified_timestamp_of_old_archive.tar.gz
+  
+  echo "    [INFO]    Renaming old PCP backup file to \"pcp_backup-$modified_timestamp_of_old_archive.tar.gz\"."
+}
+
+# ----------------------------------------------------------------------
+# A function to update the filters on the capture card.
+# 
+# This function stops the pcp server, restarts the capture card service,
+# installs the restored filters and runs tcpdump.
+# 
+function updateCaptureCardFilters {
+  
+  # Check if PCP was running prior to stopping it.
+  pcp_running=$(ps -ef | grep pec[t] | awk '{print $2}')
+  if [ "$pcp_running" != "" ]
+  then
+    echo "    [INFO]    PCP is currently running, it will now be shut down to reload Napatech configuration"
+  fi
+
+  service pcp stop
+  echo "    [INFO]    Updating the Capture Card's configuration files."
+  $CaptureCard_Bin_Dir/ntstop.sh
+  $CaptureCard_Bin_Dir/ntstart.sh
+  $CaptureCard_Bin_Dir/ntpl -f $CC_Filters_Dir/$FilterFileName
+  tcpdump -D
+  
+  # Restart PCP, if it was running before the 'stop' command was issued.
+  if [ "$pcp_running" != "" ]; then
+    echo "    [INFO]    Starting PCP"
+    service pcp start
+  fi
+}
+
+# ----------------------------------------------------------------------
+# A Function to preserve PCP-Pect's files.
+#
+# This function moves the properties.xml, log_config.xml, and their
+# "original" files out of harm's way during the restore.
+#
+function preservePcpPectFiles {
+  
+  if [ -f $PROPERTIES ]; then
+    echo "    [INFO]    Renaming the current PCP-PECT properties.xml to properties.xml.backup-restore-save."
+    cp $PROPERTIES $PROPERTIES_BACKUP
+  fi
+
+  if [ -f $PROPERTIES_ORIGINAL ]; then
+    echo "    [INFO]    Renaming the current PCP-PECT properties.xml.original to properties.xml.original.backup-restore-save."
+    cp $PROPERTIES_ORIGINAL $PROPERTIES_ORIGINAL.backup-restore-save
+  fi
+ 
+  if [ -f $LOG_CONFIG ]; then
+    echo "    [INFO]    Renaming the current PCP-PECT log_config.xml to log_config.xml.backup-restore-save."
+    cp $LOG_CONFIG ${LOG_CONFIG_BACKUP}
+  fi
+  
+  if [ -f $LOG_CONFIG_ORIGINAL ]; then
+    echo "    [INFO]    Renaming the current PCP-PECT log_config.xml.original to log_config.xml.original.backup-restore-save."
+    cp $LOG_CONFIG_ORIGINAL ${LOG_CONFIG_ORIGINAL}.backup-restore-save
+  fi
+}
+
+# ----------------------------------------------------------------------
+# A Function to preserve the capture card's files.
+#
+# This function moves the filter, ntpcap and ntservice files out of
+# harm's way during the restore.
+#
+function preserveCaptureCardFiles {
+  
+  # Perserve the the existing filters file.
+  if [ -f $CC_Filters_Dir/$FilterFileName ]
+  then
+    echo "    [INFO]    Renaming the current CAPTURE CARD hash_by_ip-6.ntpl to hash_by_ip-6.ntpl.backup-restore-save."
+    cp $CC_Filters_Dir/$FilterFileName $CC_Filters_Dir/$FilterFileName.backup-restore-save
+  fi
+  
+  # Perserve the the existing ntservice.ini.
+  if [ -f $NtService ]
+  then
+    echo "    [INFO]    Renaming the current CAPTURE CARD ntservice.ini to ntservice.ini.backup-restore-save."
+    cp $NtService $NtService.backup-restore-save
+  fi
+  
+  # Perserve the the existing ntpcap.ini.
+  if [ -f $NtPcap ]
+  then
+    echo "    [INFO]    Renaming the current CAPTURE CARD ntpcap.ini to ntpcap.ini.backup-restore-save."
+    cp $NtPcap $NtPcap.backup-restore-save
+  fi
+}
+
+# ----------------------------------------------------------------------
+# Merges the log_config.xml
+#
+# Uses diff3 to merge new, old and unmodified old log_config.xml
+# together.
+#
+function mergeLogConfigXML {
+if [ ! -f $LOG_CONFIG ] || [ ! -f $LOG_CONFIG_BACKUP ] || [ ! -f $LOG_CONFIG_ORIGINAL ]
+  then
+    echo "    [ERROR]   Cannot find the required files for a 3-way merge of the log_config.xml. A manual merge may be required."
+    echo "    [ERROR]   Previous config in location ${LOG_CONFIG}, new config in location ${LOG_CONFIG_ORIGINAL}"
+  else
+    PATCH=`diff3 -e $LOG_CONFIG $LOG_CONFIG_ORIGINAL $LOG_CONFIG_BACKUP 2>/dev/null`
+    DIFF_RETURN=$?
+    if [[ $DIFF_RETURN -eq 0 && -n "$PATCH" ]]
+    then
+      echo "$PATCH" | patch $LOG_CONFIG 
+    elif [ $DIFF_RETURN -eq 1 ]
+    then
+      echo "    [ERROR]   Conflicts found during 3-way merge of log_config.xml file, manual resolution is required."
+      echo "    [ERROR]   Recommended command to resolve: 'diff3 -e $LOG_CONFIG $LOG_CONFIG_ORIGINAL $LOG_CONFIG_BACKUP'"
+    elif [ $DIFF_RETURN -eq 2 ]
+    then
+      echo "    [ERROR]   Unable to merge the log_config.xml file, please resolve any conflicts manually."
+    fi
+  fi
+}
+
+# ----------------------------------------------------------------------
+# Merges the properties.xml
+#
+# Uses diff3 to merge new, old and unmodified old properties.xml
+# together.
+#
+function mergePropertiesXML {
+  if [ ! -f $PROPERTIES ] || [ ! -f $PROPERTIES_BACKUP ] || [ ! -f $PROPERTIES_ORIGINAL.backup-restore-save ]
+  then
+    echo "    [ERROR]   Cannot find the required files for a 3-way merge of the properties.xml. A manual merge may be required."
+    echo "    [ERROR]   Previous config in location ${PROPERTIES}, new config in location ${PROPERTIES_ORIGINAL}"
+  else
+    # Use these lines to remove the <active> tag from the XML file
+    sed -i '/<active>/d' $PROPERTIES_BACKUP
+    sed -i '/<active>/d' $PROPERTIES_ORIGINAL.backup-restore-save
+    sed -i '/<active>/d' $PROPERTIES
+    sed -i '/<active>/d' $PROPERTIES.*
+    
+    PATCH=`diff3 -e $PROPERTIES $PROPERTIES_ORIGINAL $PROPERTIES_BACKUP 2>/dev/null`
+    DIFF_RETURN=$?
+    if [[ $DIFF_RETURN -eq 0 && -n "$PATCH" ]]
+    then
+      echo "$PATCH" | patch $PROPERTIES
+    elif [ $DIFF_RETURN -eq 1 ]
+    then
+      echo "    [ERROR]   Conflicts found during 3-way merge of properties file, manual resolution is required."
+      echo "    [ERROR]   Recommended command to resolve: 'diff3 -e $PROPERTIES $PROPERTIES_ORIGINAL $PROPERTIES_BACKUP'"
+    elif [ $DIFF_RETURN -eq 2 ]
+    then
+      echo "    [ERROR]   Unable to merge the properties file, please resolve any conflicts manually."
+    fi
+  fi
+}
+
+# ----------------------------------------------------------------------
+# Detects if a custom ntpcap.ini or ntservice.ini is being used.
+#
+# Returns 0 for default configuration, 1 for custom configuration.
+#
+function detectCustomNapatechConfiguration {
+  if [[ -f $NtPcap && -f $CC_Filters_Dir/ntpcap.ini ]]
+  then
+    diff $NtPcap $CC_Filters_Dir/ntpcap.ini > /dev/null 2>&1
+    if [ $? -ne 0 ]
+    then
+      return 1
+    fi
+  fi
+
+  if [[ -f $NtService && -f $CC_Filters_Dir/ntservice.ini ]]
+  then
+    diff $NtService $CC_Filters_Dir/ntservice.ini > /dev/null 2>&1
+    if [ $? -ne 0 ]
+    then
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+# ---------------------------------------------------------------------
+# Swaps two files, using a temp file
+#
+# Returns 0 for success, 1 if there are not two files passed as
+# parameters.
+#
+function swapFiles {
+  if [[ -f "$1" && -f "$2" ]]
+  then
+    TEMPFILE="$(mktemp)"
+    chown --reference="$1" $TEMPFILE
+    chmod --reference="$1" $TEMPFILE
+    mv -f $1 $TEMPFILE
+    mv -f $2 $1
+    mv -f $TEMPFILE $2
+    return 0
+  else
+    return 1
+  fi
+}
+
+# ----------------------------------------------------------------------
+# restoreConfigFilesPermissions
+#
+function restoreConfigFilesPermissions {
+  
+  chown pcpuser:dc5000 /opt/ericsson/pcp/pect/pect/*
+  chmod 700 /opt/ericsson/pcp/pect/pect/*
+  
+  # Make the ".original" files read-only.
+  chmod 400 $PROPERTIES_ORIGINAL $LOG_CONFIG_ORIGINAL
+}
+
+# ----------------------------------------------------------------------
+# Check arguments
+#
+BACKUP=
+RESTORE=
+MERGE_CONFIG=
+KEEP_TEMP=
+RESTORE_NAPATECH_CONFIG=
+OVERWRITE_GTPC=
+
+while [ "$1" != "" ]
+do
+  case $1 in
+    -b)
+      BACKUP=true
+      ;;
+    -r)
+      RESTORE=true
+      ;;
+    -keeptemp)
+      KEEP_TEMP=true
+      ;;
+    -mergeconfig)
+      MERGE_CONFIG=true
+      ;;
+    -restoreNapatechConfig)
+      RESTORE_NAPATECH_CONFIG=true
+      ;;
+    -overwritegtpccache)
+      OVERWRITE_GTPC=true
+      ;;
+    *)
+      printArgsErrorMessage
+      exit $BAD_ARGS
+  esac
+  shift
+done
+
+# Test for invalid parameter combinations
+# -b && (-r || -mergeconfig || -restoreNapatechConfig || overwritegtpccache)
+# -r && -keeptemp
+# neither -b or -r
+if [[ "$BACKUP" == "true" && ( "$RESTORE" == "true"  || "$MERGE_CONFIG" == "true" || "$RESTORE_NAPATECH_CONFIG" == "true" || "$OVERWRITE_GTPC" == "true" ) ]] || [[ "$RESTORE" == "true" && "$KEEP_TEMP" == "true" ]] || [[ "$RESTORE" == "" && "$BACKUP" == "" ]]
+then
+  printArgsErrorMessage
+  exit $BAD_ARGS
+fi
+
+# ----------------------------------------------------------------------
+# Main part of script
+echo "    [START]   Starting the Backup/Restore process."
+
+# ----------------------------------------------------------------------
+# Back-up Steps
+if [ "$BACKUP" ]; then
+  # Call the backupCheck function
+  backupCheck
+  
+  echo "    [INFO]    Starting the Back-up."
+
+  # Check if the user wants to keep or remove the temp directories.
+  if [ ! "$KEEP_TEMP" ]; then
+    # Call the function to wipe the temp dirs.
+    wipeIntermediateDirs
+  fi
+  
+  # Check for existing archive and rename it with the timestamp.
+  if [ -f $BACKUP_ARCHIVE ]; then
+    timestampExistingArchive
+  fi
+  
+  preserveCaptureCardFiles
+  detectCustomNapatechConfiguration
+  CUSTOM_NAPATECH_CONFIG=$?
+
+  if [ "$CUSTOM_NAPATECH_CONFIG" -ne 0 ]
+  then
+    echo "    [WARNING]    *** Custom capture card configuration detected ***"
+    echo "    [WARNING]    Existing configurations will be backed up and restored in their existing directories with the .backup-restore-save extension."
+  fi
+
+  # TAR the desired files
+  echo "    [INFO]    Archiving files. This may take some time."
+  (cd /; tar -cpzf $BACKUP_ARCHIVE $PROPERTIES $PROPERTIES_ORIGINAL $LOG_CONFIG $LOG_CONFIG_ORIGINAL $GTPC_CACHE_BK $Pect_Output_Dir $Captool_Output_Dir $Staple_Output_Dir $NtPcap.backup-restore-save $NtService.backup-restore-save $CC_Filters_Dir/$FilterFileName.backup-restore-save)
+
+  echo "    [DONE]    Finished the Back-up."
+fi
+
+# ----------------------------------------------------------------------
+# Restore Steps
+if [ "$RESTORE" ]; then
+  # Call the restoreCheck function
+  restoreCheck
+  
+  echo "    [INFO]    Starting the Restore."
+  
+  # Perserve the existing properties.xml file, just incase.
+  preservePcpPectFiles
+  
+  # UnTAR the backup.
+  echo "    [INFO]    Restoring the output files."
+  (cd /; tar -xvzpf $BACKUP_ARCHIVE > /dev/null) 
+
+  # Check if the overwrite GTP-C cache switch has been passed.
+  if [ $OVERWRITE_GTPC ]; then
+    echo "    [INFO]    Overwriting the GTP-C cache."
+    mv $GTPC_CACHE_BK $GTPC_CACHE
+    chown pcpuser:dc5000 $GTPC_CACHE
+  else
+    rm -f $GTPC_CACHE_BK
+  fi
+  
+  # Check if the merge configurations switch has been passed.
+  if [ "$MERGE_CONFIG" ]
+  then
+    echo "    [INFO]    Performing a 3-way merge on PECT configuration files."
+
+    mergePropertiesXML
+    mergeLogConfigXML
+    
+    # Ensure that the permissions are maintained.
+    restoreConfigFilesPermissions
+  fi
+
+  # Check if the restore napatech configurations switch has been passed.
+  if [ "$RESTORE_NAPATECH_CONFIG" ]
+  then
+    echo "    [INFO]    Restoring Napatech config from backup."
+    swapFiles $NtPcap.backup-restore-save $NtPcap
+    swapFiles $NtService.backup-restore-save $NtService
+    swapFiles $CC_Filters_Dir/$FilterFileName.backup-restore-save $CC_Filters_Dir/$FilterFileName
+    
+    # Update the filters
+    updateCaptureCardFilters
+  fi
+
+  echo "    [DONE]    Finished the Restore."
+fi
+
+# ----------------------------------------------------------------------
+# Successful Exit
+echo "    [FINISH]  Finished the Backup/Restore process."
+
+exit $SUCCESS
